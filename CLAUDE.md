@@ -6,6 +6,8 @@ RugbyLive is a rugby live scores web app. Think OneFootball but for rugby. The g
 
 This document is the single source of truth for everything. Read it fully before doing anything.
 
+> **Maintenance rule**: Claude must keep this file up to date throughout every session. Any time a fact is confirmed, a decision is made, a status changes, or something new is discovered (API behaviour, confirmed field values, build issues, what's been built), update the relevant section before ending the session. Do not leave this file stale.
+
 > **Design companion**: the component system is prototyped in `initial-design/RugbyLive UI System.html` (design-canvas). Use that as the visual source of truth. Exact markup/React equivalents live in `initial-design/HANDOFF.md`.
 
 ---
@@ -85,14 +87,16 @@ API-Sports rugby coverage is uneven. Only render fields the API actually returns
 **Game object fields available:**
 ```
 id, date, time, timestamp, week
-status: { short: "FT" | "NS" | <live values TBD> }
+status: { short: "FT" | "NS" | "1H" | "HT" | "2H" }
 league: { id, name, type, logo, season }
 teams.home/away: { id, name, logo }
 scores: { home, away }               ← null when NS
-periods.first/second: { home, away } ← half scores, sometimes null
-periods.overtime: { home, away }     ← usually null
+periods.first/second: { home, away } ← null during live; unreliable even after FT
+periods.overtime: { home, away }     ← null in all observed cases
 ```
 No venue. No clock/minute. No referee.
+
+**Observed live game data (confirmed 2026-04-24):** scores update each poll, all period scores null during live play, no half-time scores available mid-match. The live experience is: score + status badge only.
 
 **Standings fields available:**
 ```
@@ -103,7 +107,7 @@ goals: { for, against }   ← pointsDiff must be calculated as goals.for - goals
 ```
 
 **Live polling strategy (no live=all endpoint):**
-Poll `GET /games?date=today` every 15s. Any game where `status.short !== 'FT' && status.short !== 'NS'` is live. Live status values (e.g. "1H", "HT", "2H") are unconfirmed — update this when observed during a real live match.
+Poll `GET /games?date=today` every 15s. Any game where `status.short !== 'FT' && status.short !== 'NS'` is live. Live status values confirmed via real match observation (2026-04-24): `1H` (first half), `HT` (half time), `2H` (second half). No clock/minute value is returned.
 
 ### Scheduling
 | Job | Frequency |
@@ -632,10 +636,12 @@ React Query on frontend polls /api/matches?date=YYYY-MM-DD every 15s
 UI updates match cards in real time
 ```
 
-**Known status values:**
+**Known status values (all confirmed):**
 - `NS` = Not Started
+- `1H` = First half (live)
+- `HT` = Half time (live)
+- `2H` = Second half (live)
 - `FT` = Full Time / Finished
-- Live values (e.g. `1H`, `HT`, `2H`) — **unconfirmed, update when observed**
 
 ---
 
@@ -714,9 +720,9 @@ When creating commits: write a short imperative subject line (`feat: add MatchCa
 
 ### Project layout on disk
 ```
-C:\Users\roryw\Documents\Projects\rugby-live\
-  rugbylive-web/          ← Next.js 14 frontend (not yet scaffolded)
-  rugbylive-api/          ← Node/Express backend  (not yet scaffolded)
+C:\Users\RoryWood\Documents\rugby-live\
+  rugbylive-web/          ← Next.js 14 frontend (scaffolded, not built yet)
+  rugbylive-api/          ← Node/Express backend (Phase 1 complete, tested)
   initial-design/         ← Read-only design reference — do not edit
     RugbyLive UI System.html  ← Visual design canvas
     HANDOFF.md                ← Engineering playbook
@@ -726,12 +732,30 @@ C:\Users\roryw\Documents\Projects\rugby-live\
   CLAUDE.md               ← This file (single source of truth)
 ```
 
-### Dev commands (fill in as project is scaffolded)
+### Backend status (rugbylive-api)
+- Phase 1 complete and tested against live API
+- `dotenv` installed; `import 'dotenv/config'` is the first line of `src/index.ts`
+- Local `.env` file exists at `rugbylive-api/.env` (gitignored) — contains `API_SPORTS_KEY` and `PORT=4000`
+- Start with: `cd rugbylive-api && npx ts-node src/index.ts` (nodemon optional, not required)
+- Firebase writes and FCM notifications are stubbed — deferred to Phase 2
+
+### Frontend status (rugbylive-web)
+- **Phase 1 complete and running** — all 5 pages built and tested against live API
+- Design system fully applied: CSS vars, Tailwind tokens, Bebas Neue/DM Sans/DM Mono fonts
+- All components built: Navbar, Sidebar, MobileNav, MatchCard, DateScrubber, FilterPills, CompGroupHeader, TeamCrest, CompLogo, LiveBadge, StatusBadge, FollowButton, LeagueTable, MatchHero
+- React Query polling: 15s when live matches present, 5min otherwise, paused in background
+- Zustand follow store wired with localStorage persistence
+- Framer Motion stagger animations on competition groups (80ms per group)
+- Mobile-first: top navbar shows logo only, bottom nav handles routing
+- `useLeague(id)` hook reads from cached leagues list to get `currentSeason` — fixes standings showing empty when year defaults to current calendar year
+- Start: `cd rugbylive-web && npx next dev` (port 3000), requires backend on port 4000
+
+### Dev commands
 
 | Task | Command |
 |---|---|
 | Frontend dev server | `cd rugbylive-web && npm run dev` (port 3000) |
-| Backend dev server | `cd rugbylive-api && npm run dev` (port 4000) |
+| Backend dev server | `cd rugbylive-api && npx ts-node src/index.ts` (port 4000) |
 | Frontend type-check | `cd rugbylive-web && npm run type-check` |
 | Backend type-check | `cd rugbylive-api && npm run type-check` |
 | Frontend tests | `cd rugbylive-web && npm test` |
@@ -740,8 +764,8 @@ C:\Users\roryw\Documents\Projects\rugby-live\
 | Docker build (API) | `cd rugbylive-api && docker build -t rugbylive-api .` |
 
 ### Local env setup
-- Frontend: copy `rugbylive-web/.env.local.example` → `.env.local` and fill in Firebase + API base URL
-- Backend: set env vars locally via `.env` (never commit); in prod use Cloud Run Secret Manager
+- Frontend: needs `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4000` (create when starting frontend work)
+- Backend: `rugbylive-api/.env` exists with `API_SPORTS_KEY` — in prod use Cloud Run Secret Manager
 
 ### Test strategy (from HANDOFF.md)
 - **Unit (Vitest)**: score ordering, `pointsDiff` formatting, status→badge mapping, `hashStr` stability

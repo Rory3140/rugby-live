@@ -112,16 +112,21 @@ export async function getStandings(leagueId: string, season: number): Promise<St
 
 export async function getLeagues(): Promise<League[]> {
   const data = await apiFetch<ApiSportsLeague>('leagues')
+  const currentYear = new Date().getFullYear()
   return data.response.map((l) => {
-    const current = l.seasons.find((s) => s.current)
+    const seasonNums = l.seasons.map((s) => s.season)
+    const currentSeason =
+      seasonNums.filter((s) => s <= currentYear).sort((a, b) => b - a)[0] ??
+      seasonNums.sort((a, b) => b - a)[0] ??
+      null
     return {
       id: String(l.id),
       name: l.name,
       logoUrl: l.logo || null,
       type: l.type as 'League' | 'Cup',
       country: l.country?.name || null,
-      seasons: l.seasons.map((s) => s.season),
-      currentSeason: current?.season ?? l.seasons[l.seasons.length - 1]?.season ?? null,
+      seasons: seasonNums,
+      currentSeason,
     }
   })
 }
