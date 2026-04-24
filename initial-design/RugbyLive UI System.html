@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RugbyLive · UI System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <style>
+    html, body { margin: 0; padding: 0; }
+    /* artboard inner wrapper */
+    .rl-board { background: var(--bg); color: var(--text); height: 100%; }
+  </style>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="components/primitives.jsx"></script>
+  <script type="text/babel" src="components/data.jsx"></script>
+  <script type="text/babel" src="components/layout.jsx"></script>
+  <script type="text/babel" src="components/match.jsx"></script>
+
+  <script type="text/babel" data-presets="react">
+    /* DesignCanvas / DCSection / DCArtboard are declared as top-level consts by design-canvas.jsx — use directly, don't re-destructure */
+
+    /* ---------- Wrapped artboard content ---------- */
+    const Board = ({ padding = 24, bg = 'var(--bg)', children, style }) => (
+      <div className="rl rl-board" style={{ padding, background: bg, ...style }}>{children}</div>
+    );
+
+    /* Full home/matches page composition */
+    const HomePage = () => (
+      <div className="rl rl-board" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Navbar active="Matches" />
+        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+          <Sidebar />
+          <div style={{ flex: 1, padding: '24px 28px', overflow: 'auto' }}>
+            <div style={{ maxWidth: 1120, margin: '0 auto' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <h1 className="rl-display" style={{ fontSize: 32, letterSpacing: '0.06em', margin: 0 }}>MATCHES</h1>
+                <div style={{ fontSize: 12, color: 'var(--text3)' }}>Saturday, 21 Feb 2026</div>
+              </div>
+              <div style={{ marginBottom: 16 }}><DateScrubber activeIdx={3} /></div>
+              <div style={{ marginBottom: 28 }}><FilterPills active="All" /></div>
+
+              {MATCH_GROUPS.map(g => (
+                <div key={g.competition.id} style={{ marginBottom: 36 }}>
+                  <CompGroupHeader competition={g.competition} round={g.round} liveCount={g.liveCount} following={g.following} />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+                    {g.matches.map(m => <MatchCard key={m.id} match={m} />)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+
+    const MatchDetailPage = () => (
+      <div className="rl rl-board" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Navbar active="Matches" />
+        <div style={{ flex: 1, padding: '24px 28px', overflow: 'auto' }}>
+          <div style={{ maxWidth: 820, margin: '0 auto' }}>
+            <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 14 }}>
+              <span style={{ cursor: 'pointer' }}>Matches</span> · <span style={{ cursor: 'pointer' }}>Six Nations</span> · <span style={{ color: 'var(--text2)' }}>Ireland vs France</span>
+            </div>
+            <MatchHero match={DETAIL.match} />
+            <div style={{ height: 18 }} />
+            <StatBars stats={DETAIL.stats} match={DETAIL.match} />
+            <div style={{ height: 18 }} />
+            <MatchTimeline events={DETAIL.timeline} match={DETAIL.match} />
+          </div>
+        </div>
+      </div>
+    );
+
+    const LeagueDetailPage = () => (
+      <div className="rl rl-board" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Navbar active="Leagues" />
+        <div style={{ flex: 1, padding: '24px 28px', overflow: 'auto' }}>
+          <div style={{ maxWidth: 820, margin: '0 auto' }}>
+            <div style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--border)' }}>
+              {['Standings','Fixtures','Results'].map((t,i) => {
+                const on = i === 0;
+                return (
+                  <div key={t} style={{
+                    padding: '12px 14px', fontSize: 12, fontWeight: on ? 600 : 500,
+                    color: on ? 'var(--text)' : 'var(--text2)',
+                    borderBottom: `2px solid ${on ? 'var(--accent)' : 'transparent'}`,
+                    marginBottom: -1, cursor: 'pointer',
+                  }}>{t}</div>
+                );
+              })}
+            </div>
+            <LeagueTable standings={STANDINGS} />
+          </div>
+        </div>
+      </div>
+    );
+
+    /* Mobile phone frame (375×780) */
+    const Phone = ({ children }) => (
+      <div style={{
+        width: 375, height: 780,
+        margin: '32px auto',
+        border: '1px solid var(--border)',
+        borderRadius: 28,
+        background: 'var(--bg)',
+        overflow: 'hidden',
+        display: 'flex', flexDirection: 'column',
+      }}>{children}</div>
+    );
+
+    const MobileHome = () => (
+      <Phone>
+        {/* Mobile top bar */}
+        <div style={{
+          height: 52,
+          borderBottom: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '0 16px',
+          background: 'var(--surf)',
+        }}>
+          <span className="rl-display" style={{ fontSize: 20, letterSpacing: '0.08em' }}>
+            RUGBY<span style={{ color: 'var(--accent)' }}>LIVE</span>
+          </span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button style={{ width: 36, height: 36, borderRadius: 8, color: 'var(--text2)',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{I.search}</button>
+          </div>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: 14 }}>
+          <div style={{ marginBottom: 14 }}><DateScrubber activeIdx={2} /></div>
+          <div style={{ marginBottom: 18, overflowX: 'auto', display: 'flex', gap: 8 }}>
+            <FilterPills active="Live Now" />
+          </div>
+          {MATCH_GROUPS.slice(0,2).map(g => (
+            <div key={g.competition.id} style={{ marginBottom: 24 }}>
+              <CompGroupHeader competition={g.competition} round={g.round} liveCount={g.liveCount} following={g.following} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {g.matches.slice(0,2).map(m => <MatchCard key={m.id} match={m} />)}
+              </div>
+            </div>
+          ))}
+        </div>
+        <MobileNav active="Matches" />
+      </Phone>
+    );
+
+    /* ---------- Canvas assembly ---------- */
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(
+      <DesignCanvas title="RugbyLive · UI Component System" subtitle="Dark · flat · OneFootball for rugby">
+
+        <DCSection id="atoms" title="Atoms & Controls">
+          <DCArtboard id="crests" label="Team crests + comp logos" width={720} height={160}>
+            <Board>
+              <div className="rl-label" style={{ marginBottom: 12 }}>Team crests (fallback initials)</div>
+              <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 18 }}>
+                {['IRE','FRA','ENG','SCO','WAL','ITA','NZL','RSA','AUS','ARG'].map(k => (
+                  <TeamCrest key={k} team={TEAMS[k]} size={36} />
+                ))}
+              </div>
+              <div className="rl-label" style={{ marginBottom: 12 }}>Competition logos</div>
+              <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                {Object.values(COMPS).map(c => <CompLogo key={c.id} comp={c} size={36} />)}
+              </div>
+            </Board>
+          </DCArtboard>
+
+          <DCArtboard id="badges" label="Status badges & follow" width={560} height={160}>
+            <Board>
+              <div className="rl-label" style={{ marginBottom: 12 }}>Match status</div>
+              <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 18 }}>
+                <LiveBadge clock="58'" />
+                <LiveBadge clock="HT" />
+                <StatusBadge status="finished" />
+                <StatusBadge status="scheduled" kickoff="19:30" />
+              </div>
+              <div className="rl-label" style={{ marginBottom: 12 }}>Follow button</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <FollowButton following={false} />
+                <FollowButton following={true} />
+                <FollowButton following={false} size="md" />
+              </div>
+            </Board>
+          </DCArtboard>
+
+          <DCArtboard id="filters" label="Filter pills & scorer pills" width={720} height={160}>
+            <Board>
+              <div className="rl-label" style={{ marginBottom: 12 }}>Filter pills</div>
+              <div style={{ marginBottom: 18 }}><FilterPills active="Live Now" /></div>
+              <div className="rl-label" style={{ marginBottom: 12 }}>Scorer pills</div>
+              <ScorerPills scorers={[
+                { player: 'Lowe', minute: 12 },
+                { player: 'Ringrose', minute: 34 },
+                { player: 'Dupont', minute: 41 },
+                { player: 'Alldritt', minute: 49, card: 'yellow' },
+              ]} />
+            </Board>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="chrome" title="Navigation & Chrome">
+          <DCArtboard id="navbar" label="Desktop navbar (sticky, blur)" width={1280} height={120}>
+            <Board padding={0}>
+              <Navbar active="Matches" />
+              <div style={{ height: 40 }} />
+            </Board>
+          </DCArtboard>
+
+          <DCArtboard id="sidebar" label="Desktop sidebar" width={260} height={540}>
+            <Board padding={0} style={{ height: '100%' }}>
+              <div style={{ height: '100%' }}><Sidebar /></div>
+            </Board>
+          </DCArtboard>
+
+          <DCArtboard id="mobilenav" label="Mobile bottom nav" width={420} height={120}>
+            <Board padding={0} style={{ display: 'flex', alignItems: 'flex-end', height: '100%' }}>
+              <MobileNav active="Matches" />
+            </Board>
+          </DCArtboard>
+
+          <DCArtboard id="scrubber" label="Date scrubber + filters" width={900} height={200}>
+            <Board>
+              <DateScrubber activeIdx={2} />
+              <div style={{ height: 18 }} />
+              <FilterPills active="All" />
+            </Board>
+          </DCArtboard>
+
+          <DCArtboard id="compheader" label="Competition group header" width={900} height={140}>
+            <Board>
+              <CompGroupHeader competition={COMPS.SIX} round="Round 4" liveCount={1} following={true} />
+              <CompGroupHeader competition={COMPS.URC} round="Round 14" liveCount={0} following={false} />
+            </Board>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="cards" title="Match Cards">
+          <DCArtboard id="card-live" label="Live match card (w/ scorers)" width={360} height={240}>
+            <Board><MatchCard match={MATCH_GROUPS[0].matches[0]} /></Board>
+          </DCArtboard>
+          <DCArtboard id="card-ht" label="Halftime card" width={360} height={240}>
+            <Board><MatchCard match={MATCH_GROUPS[1].matches[1]} /></Board>
+          </DCArtboard>
+          <DCArtboard id="card-ft" label="Finished match card" width={360} height={200}>
+            <Board><MatchCard match={MATCH_GROUPS[1].matches[0]} /></Board>
+          </DCArtboard>
+          <DCArtboard id="card-scheduled" label="Upcoming match card" width={360} height={200}>
+            <Board><MatchCard match={MATCH_GROUPS[0].matches[1]} /></Board>
+          </DCArtboard>
+
+          <DCArtboard id="card-grid" label="3-column match card grid (md/lg)" width={1120} height={260}>
+            <Board>
+              <CompGroupHeader competition={COMPS.SIX} round="Round 4" liveCount={1} following={true} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+                {MATCH_GROUPS[0].matches.map(m => <MatchCard key={m.id} match={m} />)}
+              </div>
+            </Board>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="league" title="League Detail">
+          <DCArtboard id="leaguetable" label="Standings table (P W D L PF PA PD PTS)" width={820} height={560}>
+            <Board><LeagueTable standings={STANDINGS} /></Board>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="matchdetail" title="Match Detail">
+          <DCArtboard id="matchhero" label="Match detail hero" width={820} height={420}>
+            <Board><MatchHero match={DETAIL.match} /></Board>
+          </DCArtboard>
+          <DCArtboard id="statbars" label="Comparative stat bars" width={820} height={460}>
+            <Board><StatBars stats={DETAIL.stats} match={DETAIL.match} /></Board>
+          </DCArtboard>
+          <DCArtboard id="timeline" label="Event timeline" width={820} height={760}>
+            <Board><MatchTimeline events={DETAIL.timeline} match={DETAIL.match} /></Board>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="pages" title="Assembled Pages">
+          <DCArtboard id="home" label="/matches · Desktop" width={1280} height={900}>
+            <HomePage />
+          </DCArtboard>
+          <DCArtboard id="match" label="/match/[id] · Desktop" width={1280} height={1200}>
+            <MatchDetailPage />
+          </DCArtboard>
+          <DCArtboard id="league-page" label="/leagues/[id] · Desktop" width={1280} height={720}>
+            <LeagueDetailPage />
+          </DCArtboard>
+          <DCArtboard id="mobile" label="Mobile · /matches" width={440} height={844}>
+            <Board padding={0} style={{ background: '#05050a' }}>
+              <MobileHome />
+            </Board>
+          </DCArtboard>
+        </DCSection>
+
+      </DesignCanvas>
+    );
+  </script>
+</body>
+</html>
