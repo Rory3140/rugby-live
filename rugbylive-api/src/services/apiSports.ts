@@ -125,6 +125,7 @@ export async function getLeagues(): Promise<League[]> {
       logoUrl: l.logo || null,
       type: l.type as 'League' | 'Cup',
       country: l.country?.name || null,
+      category: null,
       seasons: seasonNums,
       currentSeason,
     }

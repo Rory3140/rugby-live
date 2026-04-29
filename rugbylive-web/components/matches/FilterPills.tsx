@@ -1,24 +1,26 @@
 'use client'
 
-export type FilterType = 'All' | 'Live Now' | 'Finished' | 'Upcoming'
+export type FilterType = 'All' | 'Live' | 'Finished' | 'Upcoming'
 
 interface Props {
   active: FilterType
   counts: { all: number; live: number; finished: number; upcoming: number }
   onChange: (f: FilterType) => void
+  isToday?: boolean
 }
 
 const PILLS: { label: FilterType; countKey: keyof Props['counts']; live?: boolean }[] = [
   { label: 'All',      countKey: 'all' },
-  { label: 'Live Now', countKey: 'live',     live: true },
+  { label: 'Live',     countKey: 'live',     live: true },
   { label: 'Finished', countKey: 'finished' },
   { label: 'Upcoming', countKey: 'upcoming' },
 ]
 
-export default function FilterPills({ active, counts, onChange }: Props) {
+export default function FilterPills({ active, counts, onChange, isToday = true }: Props) {
+  const visiblePills = PILLS.filter(p => !p.live || isToday)
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-      {PILLS.map(pill => {
+    <div style={{ display: 'flex', gap: 8, overflowX: 'auto', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+      {visiblePills.map(pill => {
         const on = pill.label === active
         const count = counts[pill.countKey]
         return (

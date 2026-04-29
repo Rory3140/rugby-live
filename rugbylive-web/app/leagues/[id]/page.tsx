@@ -1,8 +1,10 @@
 'use client'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useStandings, useLeagueMatches } from '@/hooks/useStandings'
+import { isTerminal } from '@/lib/utils'
 import { useLeague } from '@/hooks/useLeagues'
 import { useFollowStore } from '@/store/useFollowStore'
 import LeagueTable from '@/components/leagues/LeagueTable'
@@ -14,6 +16,7 @@ import type { Match } from '@/types'
 type Tab = 'Standings' | 'Fixtures' | 'Results'
 
 export default function LeaguePage({ params }: { params: { id: string } }) {
+  const router = useRouter()
   const [tab, setTab] = useState<Tab>('Standings')
 
   const { data: league } = useLeague(params.id)
@@ -27,7 +30,7 @@ export default function LeaguePage({ params }: { params: { id: string } }) {
   const unfollow = useFollowStore(s => s.unfollowLeague)
 
   const fixtures = allMatches.filter((m: Match) => m.status === 'NS')
-  const results  = allMatches.filter((m: Match) => m.status === 'FT').reverse()
+  const results  = allMatches.filter((m: Match) => isTerminal(m.status)).reverse()
 
   const compName = league?.name ?? allMatches[0]?.competition.name ?? `League ${params.id}`
   const compObj = {
@@ -41,11 +44,24 @@ export default function LeaguePage({ params }: { params: { id: string } }) {
 
   return (
     <div style={{ padding: '24px 20px' }}>
-      {/* Breadcrumb */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, fontSize: 12, color: 'var(--text3)' }}>
-        <Link href="/leagues" style={{ color: 'var(--text3)', transition: 'color 160ms ease' }}>Leagues</Link>
-        <span>/</span>
-        <span style={{ color: 'var(--text2)' }}>{compName}</span>
+      {/* Back button */}
+      <div style={{ marginBottom: 20 }}>
+        <button
+          onClick={() => router.back()}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            height: 32, padding: '0 12px',
+            borderRadius: 8, border: '1px solid var(--border)',
+            background: 'var(--surf)', color: 'var(--text2)',
+            fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            transition: 'border-color 160ms ease, color 160ms ease',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+          Back
+        </button>
       </div>
 
       {/* League header */}

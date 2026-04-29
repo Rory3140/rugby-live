@@ -3,7 +3,7 @@ import Link from 'next/link'
 import TeamCrest from '@/components/ui/TeamCrest'
 import StatusBadge from '@/components/ui/StatusBadge'
 import type { Match } from '@/types'
-import { isLive, formatCardDate } from '@/lib/utils'
+import { isLive, isTerminal, formatCardDate } from '@/lib/utils'
 
 interface Props {
   match: Match
@@ -14,7 +14,7 @@ interface Props {
 export default function MatchCard({ match, showDate, showComp }: Props) {
   const { id, homeTeam, awayTeam, homeScore, awayScore, status, kickoff } = match
   const live = isLive(status)
-  const finished = status === 'FT'
+  const finished = isTerminal(status)
 
   const homeWon = finished && homeScore != null && awayScore != null && homeScore > awayScore
   const awayWon = finished && homeScore != null && awayScore != null && awayScore > homeScore

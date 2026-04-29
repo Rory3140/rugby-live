@@ -18,12 +18,12 @@ export const useFollowStore = create<FollowStore>()(
     (set, get) => ({
       followedLeagues: [],
       followedTeams: [],
-      followLeague: (id) => set(s => ({ followedLeagues: [...s.followedLeagues, id] })),
+      followLeague:   (id) => set(s => ({ followedLeagues: [...s.followedLeagues, id] })),
       unfollowLeague: (id) => set(s => ({ followedLeagues: s.followedLeagues.filter(l => l !== id) })),
-      followTeam: (id) => set(s => ({ followedTeams: [...s.followedTeams, id] })),
-      unfollowTeam: (id) => set(s => ({ followedTeams: s.followedTeams.filter(t => t !== id) })),
+      followTeam:     (id) => set(s => ({ followedTeams: [...s.followedTeams, id] })),
+      unfollowTeam:   (id) => set(s => ({ followedTeams: s.followedTeams.filter(t => t !== id) })),
       isFollowingLeague: (id) => get().followedLeagues.includes(id),
-      isFollowingTeam: (id) => get().followedTeams.includes(id),
+      isFollowingTeam:   (id) => get().followedTeams.includes(id),
     }),
     { name: 'rugbylive-follows' }
   )

@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { hashStr, RL_COLORS } from '@/lib/utils'
 
 interface Props {
@@ -9,9 +9,18 @@ interface Props {
 
 export default function TeamCrest({ team, size = 22 }: Props) {
   const [imgError, setImgError] = useState(false)
+  const imgRef = useRef<HTMLImageElement>(null)
   const key = team.shortName || team.name
   const pal = RL_COLORS[hashStr(key) % RL_COLORS.length]
   const initials = team.shortName || team.name.slice(0, 3).toUpperCase()
+
+  // Catch images that fail before React hydration attaches onError
+  useEffect(() => {
+    const img = imgRef.current
+    if (img && img.complete && img.naturalWidth === 0) {
+      setImgError(true)
+    }
+  }, [])
 
   const base: React.CSSProperties = {
     width: size,
@@ -29,6 +38,7 @@ export default function TeamCrest({ team, size = 22 }: Props) {
       <div style={base}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          ref={imgRef}
           src={team.logoUrl}
           alt={team.name}
           width={size}

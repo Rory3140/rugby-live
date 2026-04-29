@@ -9,21 +9,20 @@ import FollowButton from '@/components/ui/FollowButton'
 import type { League } from '@/types'
 
 function categorise(league: League): string {
+  if (league.category) return league.category
   const name = league.name.toLowerCase()
   const country = (league.country ?? '').toLowerCase()
-
   if (name.includes('seven') || name.includes('7s')) return 'Sevens'
-
-  const international = ['world', '']
-  if (!country || international.includes(country)) return 'International'
-
-  const southern = ['new zealand', 'australia', 'south africa', 'argentina', 'japan', 'fiji', 'samoa', 'tonga', 'namibia', 'pacific', 'americas']
-  if (southern.some(c => country.includes(c))) return 'Southern Hemisphere'
-
-  return 'Northern Hemisphere'
+  if (!country || country === 'world') return 'International'
+  return 'Club'
 }
 
-const ORDER = ['International', 'Northern Hemisphere', 'Southern Hemisphere', 'Sevens']
+function displayCountry(country: string | null): string | null {
+  if (!country) return null
+  return country === 'World' ? 'International' : country
+}
+
+const ORDER = ['International', 'Club', 'Sevens']
 
 export default function LeaguesPage() {
   const [search, setSearch] = useState('')
@@ -56,9 +55,30 @@ export default function LeaguesPage() {
 
   return (
     <div style={{ padding: '24px 20px' }}>
-      <h1 className="rl-display" style={{ fontSize: 32, letterSpacing: '0.06em', marginBottom: 20 }}>
-        LEAGUES
-      </h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <h1 className="rl-display" style={{ fontSize: 32, letterSpacing: '0.06em' }}>LEAGUES</h1>
+        <Link
+          href="/leagues/manage"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 12,
+            fontWeight: 600,
+            color: 'var(--text2)',
+            padding: '7px 12px',
+            borderRadius: 8,
+            border: '1px solid var(--border)',
+            background: 'var(--surf)',
+            transition: 'border-color 160ms ease, color 160ms ease',
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14" />
+          </svg>
+          Manage
+        </Link>
+      </div>
 
       {/* Search */}
       <div style={{ position: 'relative', marginBottom: 28 }}>
@@ -131,8 +151,8 @@ export default function LeaguesPage() {
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {league.name}
                     </div>
-                    {league.country && (
-                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{league.country}</div>
+                    {displayCountry(league.country) && (
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{displayCountry(league.country)}</div>
                     )}
                   </div>
                 </Link>

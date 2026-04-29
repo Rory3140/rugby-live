@@ -34,7 +34,7 @@ export default function CompGroupHeader({ competition, round, liveCount }: Props
           </div>
           {round && (
             <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>
-              Round {round}
+              {/^\d+$/.test(round.trim()) ? `Round ${round}` : round}
             </div>
           )}
         </div>

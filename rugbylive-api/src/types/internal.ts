@@ -71,6 +71,7 @@ export interface League {
   logoUrl: string | null
   type: 'League' | 'Cup'
   country: string | null
+  category: string | null   // admin override: 'International' | 'Club' | 'Sevens' | null (null = auto-detect)
   seasons: number[]
   currentSeason: number | null
 }

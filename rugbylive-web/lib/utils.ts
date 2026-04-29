@@ -17,12 +17,23 @@ export function hashStr(s: string): number {
   return Math.abs(h)
 }
 
+// Statuses that are finished/not-live (terminal or pre-game)
+const NON_LIVE = new Set(['NS', 'FT', 'AW', 'AWD', 'WO', 'CANC', 'PST', 'INT', 'ABD', 'TBD', 'AET', 'AP', 'PEN'])
+
 export function isLive(status: string): boolean {
-  return status !== 'NS' && status !== 'FT'
+  return !NON_LIVE.has(status)
+}
+
+export function isTerminal(status: string): boolean {
+  return status === 'FT' || status === 'AW' || status === 'AWD' || status === 'WO' || status === 'ABD'
+    || status === 'AET' || status === 'AP' || status === 'PEN'
 }
 
 export function formatDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 export function todayStr(): string {
@@ -52,7 +63,6 @@ export function formatKickoff(iso: string): string {
     return new Intl.DateTimeFormat('en-GB', {
       hour: '2-digit',
       minute: '2-digit',
-      timeZone: 'UTC',
     }).format(new Date(iso))
   } catch {
     return '--:--'
