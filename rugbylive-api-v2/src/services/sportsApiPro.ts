@@ -46,13 +46,29 @@ const RUGBY_LEAGUE_CATEGORY = 83
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 
+const SAP_TIMEOUT_MS = 8_000
+
 async function sapFetch<T>(path: string): Promise<T> {
   const url = `${BASE_URL}${path}`
   console.log(`[sap] GET ${url}`)
 
-  const res = await fetch(url, {
-    headers: { 'x-api-key': API_KEY },
-  })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), SAP_TIMEOUT_MS)
+
+  let res: Awaited<ReturnType<typeof fetch>>
+  try {
+    res = await fetch(url, {
+      headers: { 'x-api-key': API_KEY },
+      signal: controller.signal,
+    })
+  } catch (err: any) {
+    clearTimeout(timer)
+    if (err?.name === 'AbortError') {
+      throw new Error(`SportsAPI Pro timeout for ${path}`)
+    }
+    throw err
+  }
+  clearTimeout(timer)
 
   if (!res.ok) {
     throw new Error(`SportsAPI Pro ${res.status} for ${path}`)
@@ -67,8 +83,36 @@ async function sapFetch<T>(path: string): Promise<T> {
   return body.data
 }
 
-function meta(): ApiResponse<unknown>['meta'] {
-  return { timestamp: new Date().toISOString(), cached: false, source: 'sportsapipro' }
+function meta(cached = false): ApiResponse<unknown>['meta'] {
+  return { timestamp: new Date().toISOString(), cached, source: 'sportsapipro' }
+}
+
+// SAP returns 503 (no data) or times out — both mean "treat as empty"
+function isSapEmpty(err: any): boolean {
+  const msg: string = err?.message ?? ''
+  return msg.includes('503') || msg.includes('timeout')
+}
+
+// ─── Simple in-memory cache ───────────────────────────────────────────────────
+
+interface CacheEntry<T> { data: T; expiresAt: number }
+const cache = new Map<string, CacheEntry<any>>()
+
+function fromCache<T>(key: string): T | null {
+  const entry = cache.get(key)
+  if (!entry || Date.now() > entry.expiresAt) { cache.delete(key); return null }
+  return entry.data as T
+}
+
+function setCache<T>(key: string, data: T, ttlMs: number): void {
+  cache.set(key, { data, expiresAt: Date.now() + ttlMs })
+}
+
+const TTL = {
+  schedule: 30_000,      // 30s — live scores need to refresh
+  seasons:  3_600_000,   // 1h  — season list rarely changes
+  standings: 300_000,    // 5m
+  events:    60_000,     // 1m
 }
 
 // ─── Status normalisation ─────────────────────────────────────────────────────
@@ -343,28 +387,32 @@ function normaliseStandingRow(row: import('../types/sportsApiPro').SAPStandingRo
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function getMatchesByDate(date: string): Promise<ApiResponse<Match[]>> {
-  // date format: YYYY-MM-DD
-  // SAP returns 503 (not empty array) when no events exist for a date — treat as empty.
+  const cacheKey = `schedule:${date}`
+  const cached = fromCache<Match[]>(cacheKey)
+  if (cached) return { data: cached, meta: meta(true) }
+
   try {
     const data = await sapFetch<SAPScheduleResponse>(`/api/schedule/${date}`)
-    return {
-      data: data.events.map(normaliseEvent),
-      meta: meta(),
-    }
+    const matches = data.events.map(normaliseEvent)
+    setCache(cacheKey, matches, TTL.schedule)
+    return { data: matches, meta: meta() }
   } catch (err: any) {
-    if (err?.message?.includes('503')) {
-      return { data: [], meta: meta() }
-    }
+    if (isSapEmpty(err)) return { data: [], meta: meta() }
     throw err
   }
 }
 
 export async function getLiveMatches(): Promise<ApiResponse<Match[]>> {
-  // /api/live returns data: null when no matches are currently live
-  const data = await sapFetch<SAPScheduleResponse | null>('/api/live')
-  return {
-    data: data?.events?.map(normaliseEvent) ?? [],
-    meta: meta(),
+  // /api/live returns data: null when no matches are currently live; may 503 or timeout when unavailable
+  try {
+    const data = await sapFetch<SAPScheduleResponse | null>('/api/live')
+    return {
+      data: data?.events?.map(normaliseEvent) ?? [],
+      meta: meta(),
+    }
+  } catch (err: any) {
+    if (isSapEmpty(err)) return { data: [], meta: meta() }
+    throw err
   }
 }
 
@@ -376,9 +424,7 @@ export async function getTodayMatches(): Promise<ApiResponse<Match[]>> {
       meta: meta(),
     }
   } catch (err: any) {
-    if (err?.message?.includes('503')) {
-      return { data: [], meta: meta() }
-    }
+    if (isSapEmpty(err)) return { data: [], meta: meta() }
     throw err
   }
 }
@@ -468,7 +514,10 @@ export async function getTournaments(): Promise<ApiResponse<Tournament[]>> {
 }
 
 export async function getSeasons(tournamentId: string): Promise<ApiResponse<Season[]>> {
-  // SAP may 503 for some tournament IDs — return empty array gracefully.
+  const cacheKey = `seasons:${tournamentId}`
+  const cached = fromCache<Season[]>(cacheKey)
+  if (cached) return { data: cached, meta: meta(true) }
+
   try {
     const data = await sapFetch<SAPTournamentSeasonsResponse>(`/api/tournament/${tournamentId}/seasons`)
     const seasons: Season[] = data.seasons.map((s) => ({
@@ -477,25 +526,34 @@ export async function getSeasons(tournamentId: string): Promise<ApiResponse<Seas
       year: s.year,
       editor: s.editor ?? false,
     }))
+    setCache(cacheKey, seasons, TTL.seasons)
     return { data: seasons, meta: meta() }
   } catch (err: any) {
-    if (err?.message?.includes('503')) {
-      return { data: [], meta: meta() }
-    }
+    if (isSapEmpty(err)) return { data: [], meta: meta() }
     throw err
   }
 }
 
 export async function getStandings(tournamentId: string, seasonId: string): Promise<ApiResponse<Standings[]>> {
-  const data = await sapFetch<SAPStandingsResponse>(
-    `/api/tournament/${tournamentId}/season/${seasonId}/standings`
-  )
-  const standings: Standings[] = data.standings.map((s) => ({
-    type: s.type,
-    rows: s.rows.map(normaliseStandingRow),
-    tieBreakingRule: s.tieBreakingRule?.text ?? null,
-  }))
-  return { data: standings, meta: meta() }
+  const cacheKey = `standings:${tournamentId}:${seasonId}`
+  const cached = fromCache<Standings[]>(cacheKey)
+  if (cached) return { data: cached, meta: meta(true) }
+
+  try {
+    const data = await sapFetch<SAPStandingsResponse>(
+      `/api/tournament/${tournamentId}/season/${seasonId}/standings`
+    )
+    const standings: Standings[] = data.standings.map((s) => ({
+      type: s.type,
+      rows: s.rows.map(normaliseStandingRow),
+      tieBreakingRule: s.tieBreakingRule?.text ?? null,
+    }))
+    setCache(cacheKey, standings, TTL.standings)
+    return { data: standings, meta: meta() }
+  } catch (err: any) {
+    if (isSapEmpty(err)) return { data: [], meta: meta() }
+    throw err
+  }
 }
 
 export async function getRounds(tournamentId: string, seasonId: string): Promise<ApiResponse<{ currentRound: number | null; rounds: Round[] }>> {
@@ -512,19 +570,19 @@ export async function getRounds(tournamentId: string, seasonId: string): Promise
 }
 
 export async function getSeasonEvents(tournamentId: string, seasonId: string): Promise<ApiResponse<Match[]>> {
-  // Returns most recent batch of events for a season — SAP 503s when no events exist yet.
+  const cacheKey = `events:${tournamentId}:${seasonId}`
+  const cached = fromCache<Match[]>(cacheKey)
+  if (cached) return { data: cached, meta: meta(true) }
+
   try {
     const data = await sapFetch<SAPScheduleResponse>(
       `/api/tournament/${tournamentId}/season/${seasonId}/events/last/0`
     )
-    return {
-      data: data.events.map(normaliseEvent),
-      meta: meta(),
-    }
+    const matches = data.events.map(normaliseEvent)
+    setCache(cacheKey, matches, TTL.events)
+    return { data: matches, meta: meta() }
   } catch (err: any) {
-    if (err?.message?.includes('503')) {
-      return { data: [], meta: meta() }
-    }
+    if (isSapEmpty(err)) return { data: [], meta: meta() }
     throw err
   }
 }
@@ -539,7 +597,7 @@ export async function getRoundEvents(tournamentId: string, seasonId: string, rou
       meta: meta(),
     }
   } catch (err: any) {
-    if (err?.message?.includes('503')) {
+    if (isSapEmpty(err)) {
       return { data: [], meta: meta() }
     }
     throw err
