@@ -11,6 +11,6 @@ export const corsMiddleware = cors({
     if (allowedOrigins.includes(origin)) return callback(null, true)
     callback(new Error(`Origin ${origin} not allowed by CORS`))
   },
-  methods: ['GET', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type'],
 })

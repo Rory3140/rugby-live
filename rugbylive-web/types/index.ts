@@ -1,37 +1,20 @@
-// Internal normalised types — these are what the backend returns to the frontend.
-// All API-Sports shapes are mapped to these before leaving services/apiSports.ts.
-
-export interface ApiResponse<T> {
-  data: T
-  meta: {
-    timestamp: string
-    cached: boolean
-    source: 'realtime' | 'firestore' | 'api-sports'
-  }
-}
+export type MatchStatus = 'NS' | '1H' | 'HT' | '2H' | 'FT' | 'ET' | 'PEN' | string
 
 export interface Team {
   id: string
   name: string
+  shortName: string
   logoUrl: string | null
 }
 
 export interface Competition {
   id: string
   name: string
+  shortName: string
   logoUrl: string | null
   type: 'league' | 'cup'
   season: number
 }
-
-export interface PeriodScores {
-  home: number | null
-  away: number | null
-}
-
-// status.short values confirmed: 'NS' | 'FT'
-// Live values (e.g. '1H' | 'HT' | '2H') unconfirmed — update when observed
-export type MatchStatus = 'NS' | 'FT' | '1H' | 'HT' | '2H' | 'ET' | 'PEN' | string
 
 export interface Match {
   id: string
@@ -41,12 +24,12 @@ export interface Match {
   homeScore: number | null
   awayScore: number | null
   status: MatchStatus
-  kickoff: string        // ISO 8601
+  kickoff: string
   week: string | null
   periods: {
-    first: PeriodScores
-    second: PeriodScores
-    overtime: PeriodScores
+    first:    { home: number | null; away: number | null }
+    second:   { home: number | null; away: number | null }
+    overtime: { home: number | null; away: number | null }
   }
 }
 
@@ -68,6 +51,7 @@ export interface Standing {
 export interface League {
   id: string
   name: string
+  shortName: string
   logoUrl: string | null
   type: 'League' | 'Cup'
   country: string | null

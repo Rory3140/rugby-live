@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import express from 'express'
 import helmet from 'helmet'
 import { corsMiddleware } from './middleware/cors'
@@ -6,6 +7,7 @@ import { errorHandler } from './middleware/errorHandler'
 import matchesRouter from './routes/matches'
 import leaguesRouter from './routes/leagues'
 import pollRouter from './routes/poll'
+import adminRouter from './routes/admin'
 
 const app = express()
 const PORT = parseInt(process.env.PORT || '4000', 10)
@@ -25,6 +27,7 @@ app.get('/health', (_req, res) => {
 app.use('/matches', matchesRouter)
 app.use('/leagues', leaguesRouter)
 app.use('/poll', pollRouter)
+app.use('/admin', adminRouter)
 
 // ─── Error handler ───────────────────────────────────────────────────────────
 app.use(errorHandler)

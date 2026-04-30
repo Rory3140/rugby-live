@@ -425,15 +425,14 @@ CLUB
   - Comp strip at top (logo, name, round, live badge right)
   - Two-column team block (crest 54px + name + HOME/AWAY label)
   - Giant score row: Bebas 56, **red `var(--live)` while live, `var(--text)` when finished**
-  - Half-time scores strip (periods.first / periods.second) — from SportsAPI Pro `homeScore.period1/period2`; API-Sports periods unreliable, use SportsAPI Pro as source of truth
-  - Venue name strip — from SportsAPI Pro `event.venue.name` (not available in API-Sports)
-  - Kickoff time strip below (1px top border, text3)
-- Tab bar: **Score / Timeline / Stats / Lineups** — accent underline on active
-- **Score tab**: hero score + half-time period scores + venue + referee name
-- **Timeline tab**: try scorers, conversions, penalties, cards, substitutions — from `GET /api/match/:id/incidents`
-- **Stats tab**: stat bars for possession, tries, tackles, carries, lineouts, scrums, metres run — from `GET /api/match/:id/statistics`
-- **Lineups tab**: starting XV + bench per team — from `GET /api/match/:id/lineups`
-- ~~H2H tab~~ — removed: SportsAPI Pro `/match/:id/h2h` is 503. Re-add when endpoint recovers.
+  - Half-time scores strip (periods.first / periods.second) — only render if API returns them (not null)
+  - Kickoff time strip below (1px top border, text3) — no venue (API never returns it)
+- Tab bar: **Score / H2H** only — accent underline on active
+  - ~~Summary timeline~~ — REMOVED: `/games/events` does not exist in this API
+  - ~~Stats bars~~ — REMOVED: `/games/statistics` does not exist in this API
+  - ~~Lineups~~ — REMOVED: `/games/lineups` does not exist in this API
+- **Score tab**: hero score + half-time period scores (if available)
+- **H2H tab**: last N meetings between the two teams — same game card format, chronological descending
 
 ### `/explore` — Search
 - Search bar (teams, competitions)
@@ -501,7 +500,7 @@ CLUB
 /rugbylive-api                    ← Node.js backend
   /src
     /routes
-      /matches.ts                 ← GET /matches, GET /matches/:id, GET /matches/:id/detail (SportsAPI Pro enrichment)
+      /matches.ts                 ← GET /matches, GET /matches/:id
       /leagues.ts                 ← GET /leagues, GET /leagues/:id/standings
       /teams.ts                   ← GET /teams/:id
       /players.ts                 ← GET /players/:id
@@ -511,8 +510,7 @@ CLUB
       /pollScores.ts              ← Fetches live scores → writes Realtime DB
       /pollFixtures.ts            ← Fetches fixtures → writes Firestore
     /services
-      /apiSports.ts               ← API-Sports wrapper (schedule, live polling, standings)
-      /sportsApiPro.ts            ← SportsAPI Pro wrapper (match detail: incidents, stats, lineups)
+      /apiSports.ts               ← API-Sports wrapper (all calls here)
       /firebaseAdmin.ts           ← Firebase Admin SDK init (Firestore + RTDB)
       /store.ts                   ← All Firestore + RTDB read/write helpers
       /notifications.ts           ← FCM push sender (stubbed — Phase 2)
@@ -522,7 +520,6 @@ CLUB
       /rateLimiter.ts
     /types
       /apiSports.ts               ← API-Sports response types
-      /sportsApiPro.ts            ← SportsAPI Pro response types (incidents, statistics, lineups)
       /internal.ts                ← Internal normalised types
     /index.ts                     ← Express app + server
   /Dockerfile
@@ -567,13 +564,11 @@ export interface Match {
   status: 'scheduled' | 'live' | 'halftime' | 'finished'
   clock: string | null        // e.g. "58'" during live; "HT" when halftime
   kickoff: string             // ISO 8601
-  venue: string | null        // from SportsAPI Pro event.venue.name
-  referee: string | null      // from SportsAPI Pro event.referee.name
+  venue: string | null
   round: string | null
-  events: MatchEvent[]        // from SportsAPI Pro incidents — may be [] — render accordingly
-  stats: MatchStat[] | null   // from SportsAPI Pro statistics — null if not yet fetched
-  lineups: Lineup | null      // from SportsAPI Pro lineups — null if not yet fetched
-  winnerCode: 1 | 2 | null    // from SportsAPI Pro: 1 = home, 2 = away, null = draw/NS
+  events: MatchEvent[]        // may be [] — empty is valid, render accordingly
+  stats: MatchStat[] | null   // null if API has no stats for this fixture
+  lineups: Lineup | null      // null if unavailable
 }
 
 export interface Team {
@@ -731,7 +726,7 @@ Only sent for followed teams. In MVP, notifications are broad; Phase 2 with auth
 ## Legal Notes
 
 - API-Sports data: covered by paid API licence
-- Team/league logos: managed manually in Firebase — not pulled from any API CDN and self-hosted
+- Team/league logos: loaded via API-Sports CDN URLs only — never downloaded and self-hosted
 - Score data: not copyrightable — facts are free
 - Competition names used descriptively only
 - No implied official partnership with any rugby body
@@ -809,11 +804,9 @@ When creating commits: write a short imperative subject line (`feat: add MatchCa
 - Phase 1 complete and tested against live API
 - `dotenv` installed; `import 'dotenv/config'` is the first line of `src/index.ts`
 - Local `.env` file exists at `rugbylive-api/.env` (gitignored) — contains `API_SPORTS_KEY`, `PORT=4000`, `FIREBASE_SERVICE_ACCOUNT`, `FIREBASE_DATABASE_URL`
-- Add `SPORTS_API_PRO_KEY=3ef65f7d-c716-4b78-8bf5-23f5b1c5922e` to `.env` — SportsAPI Pro is now the sole provider
 - `service-account.json` exists at `rugbylive-api/service-account.json` (gitignored) — Firebase Admin credentials
 - Start with: `cd rugbylive-api && npx ts-node src/index.ts` (nodemon optional, not required)
 - Firebase fully wired — Firestore + Realtime Database live and tested (2026-04-25)
-- **Next backend task**: replace `src/services/apiSports.ts` with `src/services/sportsApiPro.ts` — new service covers schedule, live, match detail (incidents, statistics, lineups), standings, and season events. Update all routes and the poll job to use the new service.
 
 ### Firebase integration status (confirmed working 2026-04-25)
 - **Realtime Database**: today's games written to `/games/{date}/{gameId}` on every poll
@@ -839,7 +832,6 @@ When creating commits: write a short imperative subject line (`feat: add MatchCa
 - `.env.local` exists at `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4000`
 - `lib/firebase.ts` exists as a stub — Firebase client SDK not yet installed (Phase 2)
 - Start: `cd rugbylive-web && npm run dev` (port 3000), requires backend on port 4000
-- **Next frontend task**: add match detail tabs — Timeline, Stats, Lineups — calling `GET /matches/:id/detail`; `MatchTimeline`, `StatBars`, `MatchLineups` components exist in folder structure but not yet implemented. Remove H2H tab.
 
 **Confirmed fixes (2026-04-24 session):**
 - `formatDate()` uses local date parts (`getFullYear/Month/Date`) not `toISOString()` — fixes TODAY marker showing wrong day in non-UTC timezones (e.g. BST, EDT)
