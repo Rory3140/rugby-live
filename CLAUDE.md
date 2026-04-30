@@ -6,6 +6,8 @@ RugbyLive is a rugby live scores web app. Think OneFootball but for rugby. The g
 
 This document is the single source of truth for everything. Read it fully before doing anything.
 
+> **Maintenance rule**: Claude must keep this file up to date throughout every session. Any time a fact is confirmed, a decision is made, a status changes, or something new is discovered (API behaviour, confirmed field values, build issues, what's been built), update the relevant section before ending the session. Do not leave this file stale.
+
 > **Design companion**: the component system is prototyped in `initial-design/RugbyLive UI System.html` (design-canvas). Use that as the visual source of truth. Exact markup/React equivalents live in `initial-design/HANDOFF.md`.
 
 ---
@@ -53,7 +55,9 @@ A Swift iOS app will come later — the backend must be built as a clean statele
 | Firebase Hosting | Frontend deployment |
 | Firebase Auth | NOT USED in MVP — Phase 2 only |
 
-### Data Provider
+### Data Providers
+
+**Current provider — API-Sports Rugby API (active)**
 | | |
 |---|---|
 | Provider | API-Sports Rugby API (api-sports.io) |
@@ -85,14 +89,16 @@ API-Sports rugby coverage is uneven. Only render fields the API actually returns
 **Game object fields available:**
 ```
 id, date, time, timestamp, week
-status: { short: "FT" | "NS" | <live values TBD> }
+status: { short: "FT" | "NS" | "1H" | "HT" | "2H" }
 league: { id, name, type, logo, season }
 teams.home/away: { id, name, logo }
 scores: { home, away }               ← null when NS
-periods.first/second: { home, away } ← half scores, sometimes null
-periods.overtime: { home, away }     ← usually null
+periods.first/second: { home, away } ← null during live; unreliable even after FT
+periods.overtime: { home, away }     ← null in all observed cases
 ```
 No venue. No clock/minute. No referee.
+
+**Observed live game data (confirmed 2026-04-24):** scores update each poll, all period scores null during live play, no half-time scores available mid-match. The live experience is: score + status badge only.
 
 **Standings fields available:**
 ```
@@ -103,7 +109,32 @@ goals: { for, against }   ← pointsDiff must be calculated as goals.for - goals
 ```
 
 **Live polling strategy (no live=all endpoint):**
-Poll `GET /games?date=today` every 15s. Any game where `status.short !== 'FT' && status.short !== 'NS'` is live. Live status values (e.g. "1H", "HT", "2H") are unconfirmed — update this when observed during a real live match.
+Poll `GET /games?date=today` every 15s. Any game where `status.short !== 'FT' && status.short !== 'NS'` is live. Live status values confirmed via real match observation (2026-04-24): `1H` (first half), `HT` (half time), `2H` (second half). No clock/minute value is returned.
+
+---
+
+**Future provider — SportsAPI Pro Rugby V2 (migration planned)**
+| | |
+|---|---|
+| Provider | SportsAPI Pro (v2.rugby.sportsapipro.com) |
+| Auth | `x-api-key` header |
+| Key | `3ef65f7d-c716-4b78-8bf5-23f5b1c5922e` |
+| Key Storage | Cloud Run Secret Manager |
+| Rule | Backend only. Frontend never calls it directly. |
+| Full reference | `SPORTSAPIPRO.md` |
+
+SportsAPI Pro is the planned replacement for API-Sports. Schedule endpoints were temporarily 503, confirmed working 2026-04-29 with full coverage (170 matches on a typical Saturday). Migration not yet started — app still runs entirely on API-Sports. See `SPORTSAPIPRO.md` for full endpoint reference and response shapes.
+
+**What SportsAPI Pro adds over API-Sports:**
+- Try timeline (incidents), match statistics, lineups, per-player stats, highlights — all unavailable in API-Sports
+- Reliable `period1`/`period2` scores in the schedule response itself
+- `winnerCode`, `teamColors`, `season.id` embedded in every match object
+- Dedicated `GET /api/live` endpoint — cleaner than polling by date and filtering
+
+**What API-Sports still has that SportsAPI Pro doesn't:**
+- H2H endpoint (`/games/h2h`) — SportsAPI Pro `/match/:id/h2h` is 503
+
+**Logos:** Managed manually in Firebase — not sourced from either API. `teamColors` (hex) from SportsAPI Pro serves as crest fallback colour. `nameCode` is the text fallback.
 
 ### Scheduling
 | Job | Frequency |
@@ -349,15 +380,35 @@ CLUB
 ## Pages & Routes
 
 ### `/matches` — Home/Default
-- Page H1 "MATCHES" Bebas 32, right-aligned date text in `var(--text3)`
-- Date scrubber (7 days visible, horizontal pill row, prev/next arrows) — **active day pill is solid accent with `var(--bg)` text**
-- Filter pills: All / Live Now / Finished / Upcoming — each shows a count in DM Mono
+- Page H1 "MATCHES" Bebas 32
+- **Desktop**: calendar icon button top-right of header opens date picker (`position: relative` wrapper, hidden input `top:0 left:0 w:100% h:100%`, `showPicker()` on click). Calendar button hidden on mobile.
+- **Mobile**: calendar button hidden in header — date picker opens from the mobile date bar instead
+- Date scrubber — **two responsive layouts**:
+  - **Mobile (`< md`)**: `[‹] [date bar] [›]` — full-width button showing "Today" (accent) or e.g. "Saturday 26 April"; tapping opens native date picker; arrows step **one day** at a time
+  - **Desktop (`≥ md`)**: month label above + 7-day pill grid (Mon→Sun) + prev/next window arrows that shift a **full week** (±7). Active pill solid accent. TODAY label uses tight letter-spacing (0.02em) to prevent overflow. `getMondayOffset()` ensures the week always starts on Monday.
+- Week alignment: desktop window offset calculated so Mon is always the first pill. `getMondayOffset()` returns `2 - daysSinceMonday` where `daysSinceMonday = (today.getDay() + 6) % 7`.
+- When picking a date via calendar: window aligns to Monday of the picked week.
+- Filter pills: All / **Live** / Finished / Upcoming — each shows a count in DM Mono; horizontal scroll (no wrap) on mobile. **Live pill is hidden when selected date ≠ today** (no live games possible on past/future dates).
 - Matches grouped by competition (CompGroupHeader + 3-col match card grid)
+- **Followed leagues always sorted to top** of the competition groups list; remaining groups sorted alphabetically by competition name.
 - React Query polls `/api/matches?date=YYYY-MM-DD` every 15s (only if any live match is present; otherwise 5min)
+- Match kickoff times rendered in **user's local timezone** (no `timeZone: 'UTC'` override in `formatKickoff`)
 
 ### `/leagues` — Competition Browser
-- Grouped by: International / Northern Hemisphere / Southern Hemisphere / Sevens
+- Grouped by: International / Club / Sevens
 - Each competition: logo (28px), name, follow button
+- Header contains a "Manage" link → `/leagues/manage`
+- Only leagues where `active: true` in Firestore are shown (filtering happens at the API level)
+
+### `/leagues/manage` — Admin League Management
+- Lists all leagues including inactive (fetches `GET /admin/leagues`)
+- Grouped and sorted alphabetically within categories: International / Club / Sevens
+- Toggle switch per league — calls `PATCH /admin/leagues/:id` with `{ active: boolean }` → writes to Firestore
+- Inactive leagues shown at 40% opacity
+- Counter shows "X of Y active"
+- Optimistic UI: pending state disables toggle + shows wait cursor
+- **Currently unprotected** — `/admin/*` routes have no auth. Must add protection before production.
+- This is a sysadmin function. The `active` field is global — deactivated leagues are hidden from everyone, not just the current user.
 
 ### `/leagues/[id]` — League Detail
 - Tab bar: Standings / Fixtures / Results (accent underline on active)
@@ -374,14 +425,15 @@ CLUB
   - Comp strip at top (logo, name, round, live badge right)
   - Two-column team block (crest 54px + name + HOME/AWAY label)
   - Giant score row: Bebas 56, **red `var(--live)` while live, `var(--text)` when finished**
-  - Half-time scores strip (periods.first / periods.second) — only render if API returns them (not null)
-  - Kickoff time strip below (1px top border, text3) — no venue (API never returns it)
-- Tab bar: **Score / H2H** only — accent underline on active
-  - ~~Summary timeline~~ — REMOVED: `/games/events` does not exist in this API
-  - ~~Stats bars~~ — REMOVED: `/games/statistics` does not exist in this API
-  - ~~Lineups~~ — REMOVED: `/games/lineups` does not exist in this API
-- **Score tab**: hero score + half-time period scores (if available)
-- **H2H tab**: last N meetings between the two teams — same game card format, chronological descending
+  - Half-time scores strip (periods.first / periods.second) — from SportsAPI Pro `homeScore.period1/period2`; API-Sports periods unreliable, use SportsAPI Pro as source of truth
+  - Venue name strip — from SportsAPI Pro `event.venue.name` (not available in API-Sports)
+  - Kickoff time strip below (1px top border, text3)
+- Tab bar: **Score / Timeline / Stats / Lineups** — accent underline on active
+- **Score tab**: hero score + half-time period scores + venue + referee name
+- **Timeline tab**: try scorers, conversions, penalties, cards, substitutions — from `GET /api/match/:id/incidents`
+- **Stats tab**: stat bars for possession, tries, tackles, carries, lineouts, scrums, metres run — from `GET /api/match/:id/statistics`
+- **Lineups tab**: starting XV + bench per team — from `GET /api/match/:id/lineups`
+- ~~H2H tab~~ — removed: SportsAPI Pro `/match/:id/h2h` is 503. Re-add when endpoint recovers.
 
 ### `/explore` — Search
 - Search bar (teams, competitions)
@@ -399,6 +451,7 @@ CLUB
     /matches/page.tsx
     /leagues/page.tsx
     /leagues/[id]/page.tsx
+    /leagues/manage/page.tsx      ← Admin league on/off toggles (writes to Firestore)
     /match/[id]/page.tsx
     /explore/page.tsx
     /globals.css                  ← CSS vars from Design System section
@@ -448,24 +501,28 @@ CLUB
 /rugbylive-api                    ← Node.js backend
   /src
     /routes
-      /matches.ts                 ← GET /matches, GET /matches/:id
+      /matches.ts                 ← GET /matches, GET /matches/:id, GET /matches/:id/detail (SportsAPI Pro enrichment)
       /leagues.ts                 ← GET /leagues, GET /leagues/:id/standings
       /teams.ts                   ← GET /teams/:id
       /players.ts                 ← GET /players/:id
       /poll.ts                    ← POST /poll (called by Cloud Scheduler)
+      /admin.ts                   ← GET /admin/leagues (all incl. inactive), PATCH /admin/leagues/:id
     /jobs
       /pollScores.ts              ← Fetches live scores → writes Realtime DB
       /pollFixtures.ts            ← Fetches fixtures → writes Firestore
     /services
-      /apiSports.ts               ← API-Sports wrapper (all calls here)
-      /firebaseAdmin.ts           ← Firebase Admin SDK init
-      /notifications.ts           ← FCM push sender
+      /apiSports.ts               ← API-Sports wrapper (schedule, live polling, standings)
+      /sportsApiPro.ts            ← SportsAPI Pro wrapper (match detail: incidents, stats, lineups)
+      /firebaseAdmin.ts           ← Firebase Admin SDK init (Firestore + RTDB)
+      /store.ts                   ← All Firestore + RTDB read/write helpers
+      /notifications.ts           ← FCM push sender (stubbed — Phase 2)
     /middleware
       /cors.ts                    ← Allow rugbylive.app + localhost
       /errorHandler.ts
       /rateLimiter.ts
     /types
       /apiSports.ts               ← API-Sports response types
+      /sportsApiPro.ts            ← SportsAPI Pro response types (incidents, statistics, lineups)
       /internal.ts                ← Internal normalised types
     /index.ts                     ← Express app + server
   /Dockerfile
@@ -491,6 +548,8 @@ All backend endpoints return this envelope:
 
 Keep all endpoints stateless. No session, no cookie auth. CORS open to rugbylive.app and localhost:3000.
 
+**CORS allowed methods**: `GET, POST, PATCH, OPTIONS` — PATCH required for admin league toggle.
+
 ---
 
 ## TypeScript Types
@@ -508,11 +567,13 @@ export interface Match {
   status: 'scheduled' | 'live' | 'halftime' | 'finished'
   clock: string | null        // e.g. "58'" during live; "HT" when halftime
   kickoff: string             // ISO 8601
-  venue: string | null
+  venue: string | null        // from SportsAPI Pro event.venue.name
+  referee: string | null      // from SportsAPI Pro event.referee.name
   round: string | null
-  events: MatchEvent[]        // may be [] — empty is valid, render accordingly
-  stats: MatchStat[] | null   // null if API has no stats for this fixture
-  lineups: Lineup | null      // null if unavailable
+  events: MatchEvent[]        // from SportsAPI Pro incidents — may be [] — render accordingly
+  stats: MatchStat[] | null   // from SportsAPI Pro statistics — null if not yet fetched
+  lineups: Lineup | null      // from SportsAPI Pro lineups — null if not yet fetched
+  winnerCode: 1 | 2 | null    // from SportsAPI Pro: 1 = home, 2 = away, null = draw/NS
 }
 
 export interface Team {
@@ -632,10 +693,26 @@ React Query on frontend polls /api/matches?date=YYYY-MM-DD every 15s
 UI updates match cards in real time
 ```
 
-**Known status values:**
+**Known status values (all confirmed):**
 - `NS` = Not Started
+- `1H` = First half (live)
+- `HT` = Half time (live)
+- `2H` = Second half (live)
 - `FT` = Full Time / Finished
-- Live values (e.g. `1H`, `HT`, `2H`) — **unconfirmed, update when observed**
+- `AET` = After Extra Time (terminal — treat as FT)
+- `AP` = After Penalties (terminal — treat as FT)
+- `PEN` = Penalty Shootout (terminal — treat as FT)
+- `AW` = Awarded Win / Walkover (terminal — show "W/O" badge, not a time)
+- `AWD` = Awarded Draw (terminal — show "W/O" badge)
+- `WO` = Walkover (terminal — show "W/O" badge)
+- `ABD` = Abandoned (terminal)
+- `CANC` = Cancelled (show "CANC" badge)
+- `PST` = Postponed (show "PPD" badge)
+
+**isLive / isTerminal rules:**
+- `isLive(status)`: returns `true` only for `1H`, `HT`, `2H` (anything not in the NON_LIVE set)
+- `isTerminal(status)`: returns `true` for `FT`, `AET`, `AP`, `PEN`, `AW`, `AWD`, `WO`, `ABD`
+- NON_LIVE set: `NS, FT, AW, AWD, WO, CANC, PST, INT, ABD, TBD, AET, AP, PEN`
 
 ---
 
@@ -654,7 +731,7 @@ Only sent for followed teams. In MVP, notifications are broad; Phase 2 with auth
 ## Legal Notes
 
 - API-Sports data: covered by paid API licence
-- Team/league logos: loaded via API-Sports CDN URLs only — never downloaded and self-hosted
+- Team/league logos: managed manually in Firebase — not pulled from any API CDN and self-hosted
 - Score data: not copyrightable — facts are free
 - Competition names used descriptively only
 - No implied official partnership with any rugby body
@@ -714,24 +791,105 @@ When creating commits: write a short imperative subject line (`feat: add MatchCa
 
 ### Project layout on disk
 ```
-C:\Users\roryw\Documents\Projects\rugby-live\
-  rugbylive-web/          ← Next.js 14 frontend (not yet scaffolded)
-  rugbylive-api/          ← Node/Express backend  (not yet scaffolded)
+/Users/rorywood/Projects/Web/rugby-live/
+  rugbylive-web/          ← Next.js 14 frontend (Phase 1 complete)
+  rugbylive-api/          ← Node/Express backend (Phase 1 complete + Firebase wired)
   initial-design/         ← Read-only design reference — do not edit
     RugbyLive UI System.html  ← Visual design canvas
     HANDOFF.md                ← Engineering playbook
     components/               ← Prototype JSX (primitives, layout, match)
     styles/                   ← Design tokens CSS
     design-canvas.jsx
+  .claude/
+    settings.json         ← Bash(*) allow-all, no permission prompts
   CLAUDE.md               ← This file (single source of truth)
 ```
 
-### Dev commands (fill in as project is scaffolded)
+### Backend status (rugbylive-api)
+- Phase 1 complete and tested against live API
+- `dotenv` installed; `import 'dotenv/config'` is the first line of `src/index.ts`
+- Local `.env` file exists at `rugbylive-api/.env` (gitignored) — contains `API_SPORTS_KEY`, `PORT=4000`, `FIREBASE_SERVICE_ACCOUNT`, `FIREBASE_DATABASE_URL`
+- Add `SPORTS_API_PRO_KEY=3ef65f7d-c716-4b78-8bf5-23f5b1c5922e` to `.env` — SportsAPI Pro is now the sole provider
+- `service-account.json` exists at `rugbylive-api/service-account.json` (gitignored) — Firebase Admin credentials
+- Start with: `cd rugbylive-api && npx ts-node src/index.ts` (nodemon optional, not required)
+- Firebase fully wired — Firestore + Realtime Database live and tested (2026-04-25)
+- **Next backend task**: replace `src/services/apiSports.ts` with `src/services/sportsApiPro.ts` — new service covers schedule, live, match detail (incidents, statistics, lineups), standings, and season events. Update all routes and the poll job to use the new service.
+
+### Firebase integration status (confirmed working 2026-04-25)
+- **Realtime Database**: today's games written to `/games/{date}/{gameId}` on every poll
+- **Firestore `/matches/{id}`**: FT games written permanently when poll detects FT transition
+- **Firestore `/leagues`**: cached from API-Sports on first `/leagues` request, refreshed if > 24h old. Each doc has `active: boolean` (default `true`) and `category: string | null` (default `null` = auto-detect). Both fields are preserved on API-Sports refresh. Setting `active: false` hides the league globally. Setting `category` overrides the auto-detect grouping (International/Club/Sevens).
+- **Firestore `/teams/{id}`**: upserted on poll when team first seen; `customLogoUrl: null` field reserved for future custom logos
+- `GET /matches?date=today` → RTDB first (`source: "realtime"`), falls back to API-Sports
+- `GET /matches?date=past` → Firestore first, falls back to API-Sports
+- `GET /matches/:id` → Firestore first (if historical FT game), falls back to API-Sports
+- `GET /leagues` → Firestore first if < 24h old, falls back to API-Sports and seeds Firestore
+- FCM push notifications still stubbed — deferred to Phase 2
+- **Logo strategy**: `logoUrl` = API-Sports CDN (stored in DB), `customLogoUrl: null` = reserved for future custom logos. Effective logo = `customLogoUrl ?? logoUrl`. Frontend receives a single `logoUrl` field.
+
+### Frontend status (rugbylive-web)
+- **Phase 1 complete and running** — all 5 pages built and tested against live API
+- Design system fully applied: CSS vars, Tailwind tokens, Bebas Neue/DM Sans/DM Mono fonts
+- All components built: Navbar, Sidebar, MobileNav, MatchCard, DateScrubber, FilterPills, CompGroupHeader, TeamCrest, CompLogo, LiveBadge, StatusBadge, FollowButton, LeagueTable, MatchHero
+- React Query polling: 15s when live matches present, 5min otherwise, paused in background
+- Zustand follow store wired with localStorage persistence
+- Framer Motion stagger animations on competition groups (80ms per group)
+- Mobile-first: top navbar shows logo only, bottom nav handles routing
+- `useLeague(id)` hook reads from cached leagues list to get `currentSeason` — fixes standings showing empty when year defaults to current calendar year
+- `.env.local` exists at `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4000`
+- `lib/firebase.ts` exists as a stub — Firebase client SDK not yet installed (Phase 2)
+- Start: `cd rugbylive-web && npm run dev` (port 3000), requires backend on port 4000
+- **Next frontend task**: add match detail tabs — Timeline, Stats, Lineups — calling `GET /matches/:id/detail`; `MatchTimeline`, `StatBars`, `MatchLineups` components exist in folder structure but not yet implemented. Remove H2H tab.
+
+**Confirmed fixes (2026-04-24 session):**
+- `formatDate()` uses local date parts (`getFullYear/Month/Date`) not `toISOString()` — fixes TODAY marker showing wrong day in non-UTC timezones (e.g. BST, EDT)
+- `formatKickoff()` no longer passes `timeZone: 'UTC'` — match times now render in user's local timezone
+- `isLive()` / `isTerminal()` updated: AW, AWD, WO, CANC, PST, INT, ABD, TBD all treated as non-live; `isTerminal()` used for Finished filter and Results tab
+- Filter pill label "Live Now" renamed to "Live"
+- Filter pills use horizontal scroll (`overflowX: auto`) instead of wrapping — single row on mobile
+- DateScrubber responsive: mobile gets single date-bar layout, desktop keeps 7-pill grid; calendar picker uses `showPicker()` via button+hidden-input pattern (input `top:0 left:0 w:100% h:100% pointerEvents:none` inside `position:relative` wrapper)
+- Desktop calendar button moved to page header (icon only, hidden on mobile)
+- TODAY pill letter-spacing tightened to `0.02em` (vs `0.08em` for other days) to prevent overflow
+
+**Confirmed fixes (2026-04-28 session):**
+- `isLive()` / `isTerminal()` further updated: `AET`, `AP`, `PEN` added to NON_LIVE and isTerminal — these games are finished, not live
+- `StatusBadge`: `AET/AP/PEN` → shows "FT" (no AET label needed); `AW/AWD/WO/ABD` → shows "W/O" (not kickoff time); `CANC` → "CANC"; `PST` → "PPD"
+- `MatchCard`: uses `isTerminal(status)` (was hardcoded `status === 'FT'`) for winner bold styling
+- **Live filter pill hidden** when selected date ≠ today (no live games possible on past/future dates) — `isToday` prop on `FilterPills`
+- **Desktop date scrubber** always starts on Monday (`getMondayOffset()`); left/right arrows shift a full week (±7); month label shown above pills
+- **Mobile date scrubber** left/right arrows shift one day at a time (`stepDate` in page)
+- **Followed leagues sort to top** of matches feed; remaining sorted alphabetically
+- **League active field in Firestore**: `active: boolean` on each league doc. `GET /leagues` filters to active only. `GET /admin/leagues` returns all. `PATCH /admin/leagues/:id` toggles `active`. Preserved on API-Sports refresh.
+- **`/leagues/manage` page** built: toggle switches per league, grouped + alphabetical, optimistic UI
+- **CORS**: `PATCH` added to allowed methods (needed for admin toggle)
+- **`/admin/leagues` routes** added: unprotected for now, must add auth before production
+
+**Confirmed fixes (2026-04-29 session):**
+- **Inactive league filtering**: backend filters inactive leagues everywhere — `GET /matches` (all three sources: RTDB, Firestore, API-Sports), poll job (inactive leagues never written to RTDB), and `GET /leagues`. `getActiveLeagueIds()` in store.ts with 5-min in-memory cache; `invalidateActiveLeagueCache()` called immediately on admin PATCH so change takes effect within one poll cycle.
+- **League `category` field**: `category: string | null` added to `League` type (backend + frontend). Admin-set override stored in Firestore, preserved on API-Sports refresh. `categorise()` on frontend checks `league.category` first, then auto-detects. Auto-detect: Sevens (name), International (no country or `"World"`), Club (everything else). API-Sports returns `country: "World"` for international competitions — this is the correct check.
+- **League grouping**: International / Club / Sevens (removed Northern/Southern Hemisphere split)
+- **"World" → "International"**: `displayCountry()` helper replaces "World" with "International" in all country labels on leagues page and manage page
+- **`/leagues/manage` category picker**: inline `<select>` per league row — "Auto (detected)" or explicit International/Club/Sevens. Optimistic UI (re-groups instantly, reverts on failure). PATCH sends `{ category }` to backend.
+- **URL-based navigation state**: `selectedDate` synced to URL as `?date=YYYY-MM-DD` via `router.replace` (no history pollution). On mount, `useEffect` restores date + window offset from URL. Enables browser back button to return to exact date after visiting match/league detail.
+- **`← Back` buttons**: `router.back()` on `/match/[id]` (inline with breadcrumb) and `/leagues/[id]` (above league header). Works for all entry points — back from match returns to matches at the correct date, back from league returns to wherever the user came from.
+- **`windowOffsetForDate(date)`** helper extracted in matches page — computes Monday-aligned window offset for any given date. Used for both URL restore and calendar pick.
+- **`prevDateRef` bug fix**: was `useRef(todayStr)` (stored the function), fixed to `useRef(todayStr())` (stores the string).
+- **`CompGroupHeader` round label**: only prepends "Round " when the value is a plain number. Named rounds (Semi-finals, Final, Quarter-finals, etc.) render as-is.
+
+### Frontend Firebase upgrade (next step — not yet built)
+To get true real-time score updates (pushed from RTDB instead of polled from API):
+1. Firebase console → Project settings → General → Add web app → copy `firebaseConfig`
+2. Add `NEXT_PUBLIC_FIREBASE_CONFIG='{...}'` to `rugbylive-web/.env.local`
+3. `npm install firebase` in rugbylive-web
+4. Update RTDB security rules to `{ "rules": { ".read": true, ".write": false } }`
+5. Uncomment `lib/firebase.ts` and update `hooks/useLiveScores.ts` to use `onValue` listener on `/games/{date}` instead of React Query polling
+
+### Dev commands
 
 | Task | Command |
 |---|---|
 | Frontend dev server | `cd rugbylive-web && npm run dev` (port 3000) |
-| Backend dev server | `cd rugbylive-api && npm run dev` (port 4000) |
+| Backend dev server | `cd rugbylive-api && npx ts-node src/index.ts` (port 4000) |
 | Frontend type-check | `cd rugbylive-web && npm run type-check` |
 | Backend type-check | `cd rugbylive-api && npm run type-check` |
 | Frontend tests | `cd rugbylive-web && npm test` |
@@ -740,8 +898,8 @@ C:\Users\roryw\Documents\Projects\rugby-live\
 | Docker build (API) | `cd rugbylive-api && docker build -t rugbylive-api .` |
 
 ### Local env setup
-- Frontend: copy `rugbylive-web/.env.local.example` → `.env.local` and fill in Firebase + API base URL
-- Backend: set env vars locally via `.env` (never commit); in prod use Cloud Run Secret Manager
+- Frontend: needs `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4000` (create when starting frontend work)
+- Backend: `rugbylive-api/.env` exists with `API_SPORTS_KEY` — in prod use Cloud Run Secret Manager
 
 ### Test strategy (from HANDOFF.md)
 - **Unit (Vitest)**: score ordering, `pointsDiff` formatting, status→badge mapping, `hashStr` stability
