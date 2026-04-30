@@ -123,16 +123,58 @@ Poll `GET /games?date=today` every 15s. Any game where `status.short !== 'FT' &&
 | Rule | Backend only. Frontend never calls it directly. |
 | Full reference | `SPORTSAPIPRO.md` |
 
-SportsAPI Pro is the planned replacement for API-Sports. Schedule endpoints were temporarily 503, confirmed working 2026-04-29 with full coverage (170 matches on a typical Saturday). Migration not yet started — app still runs entirely on API-Sports. See `SPORTSAPIPRO.md` for full endpoint reference and response shapes.
+SportsAPI Pro is the planned replacement for API-Sports. App still runs entirely on API-Sports (rugbylive-api, port 4000). A parallel v2 backend (rugbylive-api-v2, port 4001) has been fully built against SportsAPI Pro and is tested and working. Migration to v2 not started — frontend still points at port 4000.
+
+**Confirmed working SportsAPI Pro endpoints (2026-04-30):**
+- `GET /api/schedule/:date` — 170 matches on a busy Saturday, period1/period2 scores embedded
+- `GET /api/live` — dedicated live endpoint; returns `data: null` (not error) when nothing live
+- `GET /api/today` — today's full schedule
+- `GET /api/match/:id` — single match with **venue name** and **referee name** (was 503, now working)
+- `GET /api/match/:id/incidents` — try timeline: scorer, minute, running score, cards, substitutions
+- `GET /api/match/:id/statistics` — 60 stats (possession, carries, metres, tackles, lineouts, scrums, turnovers) across ALL/1ST/2ND periods
+- `GET /api/match/:id/lineups` — starting XV + bench, both teams (15+8 each)
+- `GET /api/match/:id/player-statistics` — per-player stats for all 46 players
+- `GET /api/match/:id/highlights` — YouTube URL + thumbnail
+- `GET /api/match/:id/managers` — head coach name for both teams
+- `GET /api/match/:id/h2h` — all-time H2H record: homeWins / awayWins / draws (was 503, now working)
+- `GET /api/match/:id/votes` — fan prediction counts (home / draw / away)
+- `GET /api/teams/:id` — name, nameCode, teamColors hex, home venue, form string
+- `GET /api/teams/:id/near-events` — immediately previous result + next fixture
+- `GET /api/teams/:id/events/last/:page` — paginated results, 30 per page
+- `GET /api/teams/:id/events/next/:page` — paginated upcoming fixtures
+- `GET /api/tournament/:id/info` — competition detail, title holder, colors, hasRounds (was 503, now working)
+- `GET /api/tournament/:id/seasons` — season list with IDs
+- `GET /api/tournament/:id/season/:sid/standings` — full table
+- `GET /api/tournament/:id/season/:sid/rounds` — round list + current round
+- `GET /api/tournament/:id/season/:sid/events/last/:page` — recent results
+- `GET /api/tournament/:id/season/:sid/events/round/:r` — specific round matches
+- `GET /api/categories/:id/tournaments` — all competitions in a category (82 = union, 83 = league)
+
+**SportsAPI Pro confirmed NOT available:**
+- `/api/players/:id` — no player profiles
+- `/api/tournament/:id/season/:sid/top-scorers` — not available
+- `/api/search` — team/tournament search by name not available (use IDs from match objects)
+- H2H match list — `/h2h` returns win/loss summary only, no list of past meetings
+
+**incidentClass values confirmed in real data:**
+- `try` → try (5pts)
+- `twoPoints` → conversion (union, 2pts)
+- `onePoint` → conversion (league, 1pt)
+- `threePoints` → penalty goal (3pts)
+- `dropGoal` → drop goal (3pts)
+- `yellow` / `red` → cards (appear as goal subtype in some feeds)
 
 **What SportsAPI Pro adds over API-Sports:**
-- Try timeline (incidents), match statistics, lineups, per-player stats, highlights — all unavailable in API-Sports
+- Try timeline, match stats, lineups, per-player stats, highlights, coaches, fan votes
 - Reliable `period1`/`period2` scores in the schedule response itself
 - `winnerCode`, `teamColors`, `season.id` embedded in every match object
-- Dedicated `GET /api/live` endpoint — cleaner than polling by date and filtering
+- Venue name and referee name in single match response
+- Dedicated `/api/live` endpoint — cleaner than polling by date and filtering
+- Team profile + results/fixtures history
+- H2H win/loss summary per match
 
 **What API-Sports still has that SportsAPI Pro doesn't:**
-- H2H endpoint (`/games/h2h`) — SportsAPI Pro `/match/:id/h2h` is 503
+- Full H2H match list (`/games/h2h` returns individual past games — SportsAPI Pro only gives win/loss counts)
 
 **Logos:** Managed manually in Firebase — not sourced from either API. `teamColors` (hex) from SportsAPI Pro serves as crest fallback colour. `nameCode` is the text fallback.
 
@@ -497,7 +539,7 @@ CLUB
   /types
     /index.ts                     ← Match, Team, League, Event, Standing types
 
-/rugbylive-api                    ← Node.js backend
+/rugbylive-api                    ← Node.js backend v1 — API-Sports + Firebase (port 4000)
   /src
     /routes
       /matches.ts                 ← GET /matches, GET /matches/:id
@@ -523,6 +565,31 @@ CLUB
       /internal.ts                ← Internal normalised types
     /index.ts                     ← Express app + server
   /Dockerfile
+  /.dockerignore
+
+/rugbylive-api-v2                 ← Node.js backend v2 — SportsAPI Pro only, no Firebase (port 4001)
+  /src
+    /routes
+      /matches.ts   ← GET /matches, /matches/live, /matches/today, /matches/:id,
+                       /matches/:id/incidents, /statistics, /lineups, /player-statistics,
+                       /highlights, /managers, /h2h, /votes
+      /leagues.ts   ← GET /leagues, /leagues/:id, /leagues/:id/seasons, /standings,
+                       /rounds, /games (with optional ?round=)
+      /teams.ts     ← GET /teams/:id, /teams/:id/near-events, /results, /fixtures
+      /poll.ts      ← POST /poll — live diff detector, no Firebase writes
+    /services
+      /sportsApiPro.ts  ← All SportsAPI Pro calls + normalisation
+    /middleware
+      /cors.ts, errorHandler.ts, rateLimiter.ts
+    /types
+      /sportsApiPro.ts  ← Raw SportsAPI Pro response types
+      /internal.ts      ← Normalised internal types (extended vs v1: period scores, winnerCode,
+                           venue, referee, teamColors, incidents, stats, lineups, player stats,
+                           highlights, coaches, H2H summary, votes, team profile)
+    /index.ts           ← Express app, port 4001
+  /.env                 ← SPORTS_API_PRO_KEY + PORT=4001 (gitignored)
+  /package.json
+  /tsconfig.json
   /.dockerignore
 ```
 
@@ -786,19 +853,53 @@ When creating commits: write a short imperative subject line (`feat: add MatchCa
 
 ### Project layout on disk
 ```
-/Users/rorywood/Projects/Web/rugby-live/
+C:\Users\roryw\Documents\Projects\rugby-live\
   rugbylive-web/          ← Next.js 14 frontend (Phase 1 complete)
-  rugbylive-api/          ← Node/Express backend (Phase 1 complete + Firebase wired)
+  rugbylive-api/          ← Node/Express backend v1 (Phase 1 complete + Firebase wired)
+  rugbylive-api-v2/       ← Node/Express backend v2 (SportsAPI Pro, built 2026-04-30)
   initial-design/         ← Read-only design reference — do not edit
     RugbyLive UI System.html  ← Visual design canvas
     HANDOFF.md                ← Engineering playbook
     components/               ← Prototype JSX (primitives, layout, match)
     styles/                   ← Design tokens CSS
     design-canvas.jsx
-  .claude/
-    settings.json         ← Bash(*) allow-all, no permission prompts
   CLAUDE.md               ← This file (single source of truth)
+  SPORTSAPIPRO.md         ← Full SportsAPI Pro endpoint reference + test results
 ```
+
+### Backend v2 status (rugbylive-api-v2)
+- **Built and tested 2026-04-30** — all endpoints verified against live SportsAPI Pro
+- Port 4001 (v1 stays on 4000 — both can run simultaneously)
+- No Firebase dependency — fully stateless
+- `.env` exists at `rugbylive-api-v2/.env` (gitignored) — contains `SPORTS_API_PRO_KEY`, `PORT=4001`
+- Start with: `cd rugbylive-api-v2 && npx ts-node src/index.ts`
+- Frontend not yet migrated to v2 — still points at port 4000
+
+**Endpoints confirmed working in v2:**
+- `GET /health` — liveness check
+- `GET /matches?date=YYYY-MM-DD` — schedule by date (170 matches on busy Saturdays)
+- `GET /matches/live` — live matches (empty array when nothing live, not an error)
+- `GET /matches/today` — today's full schedule
+- `GET /matches/:id` — single match with venue + referee (uses `/api/match/:id` directly)
+- `GET /matches/:id/incidents` — try timeline, 41 events for a Premiership match
+- `GET /matches/:id/statistics` — 60 stats across ALL/1ST/2ND periods
+- `GET /matches/:id/lineups` — starting XV + bench both teams
+- `GET /matches/:id/player-statistics` — per-player stats (46 players)
+- `GET /matches/:id/highlights` — YouTube URL + thumbnail
+- `GET /matches/:id/managers` — head coaches both teams
+- `GET /matches/:id/h2h` — homeWins/awayWins/draws all-time record
+- `GET /matches/:id/votes` — fan prediction vote counts
+- `GET /leagues` — 129 tournaments (categories 82 + 83)
+- `GET /leagues/:id` — tournament info with title holder
+- `GET /leagues/:id/seasons` — season list with IDs
+- `GET /leagues/:id/standings?season=:sid` — full table
+- `GET /leagues/:id/rounds?season=:sid` — round navigator + current round
+- `GET /leagues/:id/games?season=:sid[&round=:r]` — results/fixtures by season or round
+- `GET /teams/:id` — profile (nameCode, colors, venue, form)
+- `GET /teams/:id/near-events` — previous result + next fixture
+- `GET /teams/:id/results?page=N` — paginated results, 30/page
+- `GET /teams/:id/fixtures?page=N` — paginated fixtures, 30/page
+- `POST /poll` — live diff detector (returns polled/live/changes counts, no Firebase writes)
 
 ### Backend status (rugbylive-api)
 - Phase 1 complete and tested against live API
@@ -881,17 +982,20 @@ To get true real-time score updates (pushed from RTDB instead of polled from API
 | Task | Command |
 |---|---|
 | Frontend dev server | `cd rugbylive-web && npm run dev` (port 3000) |
-| Backend dev server | `cd rugbylive-api && npx ts-node src/index.ts` (port 4000) |
+| Backend v1 dev server | `cd rugbylive-api && npx ts-node src/index.ts` (port 4000) |
+| Backend v2 dev server | `cd rugbylive-api-v2 && npx ts-node src/index.ts` (port 4001) |
 | Frontend type-check | `cd rugbylive-web && npm run type-check` |
-| Backend type-check | `cd rugbylive-api && npm run type-check` |
+| Backend v1 type-check | `cd rugbylive-api && npm run type-check` |
+| Backend v2 type-check | `cd rugbylive-api-v2 && npm run type-check` |
 | Frontend tests | `cd rugbylive-web && npm test` |
-| Backend tests | `cd rugbylive-api && npm test` |
 | Build frontend | `cd rugbylive-web && npm run build` |
-| Docker build (API) | `cd rugbylive-api && docker build -t rugbylive-api .` |
+| Docker build (API v1) | `cd rugbylive-api && docker build -t rugbylive-api .` |
+| Docker build (API v2) | `cd rugbylive-api-v2 && docker build -t rugbylive-api-v2 .` |
 
 ### Local env setup
 - Frontend: needs `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4000` (create when starting frontend work)
-- Backend: `rugbylive-api/.env` exists with `API_SPORTS_KEY` — in prod use Cloud Run Secret Manager
+- Backend v1: `rugbylive-api/.env` exists with `API_SPORTS_KEY` — in prod use Cloud Run Secret Manager
+- Backend v2: `rugbylive-api-v2/.env` exists with `SPORTS_API_PRO_KEY` and `PORT=4001` — gitignored
 
 ### Test strategy (from HANDOFF.md)
 - **Unit (Vitest)**: score ordering, `pointsDiff` formatting, status→badge mapping, `hashStr` stability
