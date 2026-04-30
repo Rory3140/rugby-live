@@ -123,7 +123,7 @@ Poll `GET /games?date=today` every 15s. Any game where `status.short !== 'FT' &&
 | Rule | Backend only. Frontend never calls it directly. |
 | Full reference | `SPORTSAPIPRO.md` |
 
-SportsAPI Pro is the planned replacement for API-Sports. App still runs entirely on API-Sports (rugbylive-api, port 4000). A parallel v2 backend (rugbylive-api-v2, port 4001) has been fully built against SportsAPI Pro and is tested and working. Migration to v2 not started — frontend still points at port 4000.
+**Migration status (2026-04-30): COMPLETE.** The app now runs entirely on SportsAPI Pro (rugbylive-api-v2, port 4001). The old rugbylive-api (port 4000 / API-Sports) is no longer used. Frontend `.env.local` points at port 4001.
 
 **Confirmed working SportsAPI Pro endpoints (2026-04-30):**
 - `GET /api/schedule/:date` — 170 matches on a busy Saturday, period1/period2 scores embedded
@@ -929,10 +929,10 @@ C:\Users\roryw\Documents\Projects\rugby-live\
 - Zustand follow store wired with localStorage persistence
 - Framer Motion stagger animations on competition groups (80ms per group)
 - Mobile-first: top navbar shows logo only, bottom nav handles routing
-- `useLeague(id)` hook reads from cached leagues list to get `currentSeason` — fixes standings showing empty when year defaults to current calendar year
-- `.env.local` exists at `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4000`
+- `useLeagueSeasons(id)` hook fetches seasons dynamically from `/leagues/:id/seasons`; `seasons[0]` is the most recent season (SAP returns newest first). Used in league detail page for standings + fixtures/results.
+- `.env.local` exists at `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4001` (v2 backend)
 - `lib/firebase.ts` exists as a stub — Firebase client SDK not yet installed (Phase 2)
-- Start: `cd rugbylive-web && npm run dev` (port 3000), requires backend on port 4000
+- Start: `cd rugbylive-web && npm run dev` (port 3000), requires backend on port 4001
 
 **Confirmed fixes (2026-04-24 session):**
 - `formatDate()` uses local date parts (`getFullYear/Month/Date`) not `toISOString()` — fixes TODAY marker showing wrong day in non-UTC timezones (e.g. BST, EDT)
@@ -969,6 +969,19 @@ C:\Users\roryw\Documents\Projects\rugby-live\
 - **`prevDateRef` bug fix**: was `useRef(todayStr)` (stored the function), fixed to `useRef(todayStr())` (stores the string).
 - **`CompGroupHeader` round label**: only prepends "Round " when the value is a plain number. Named rounds (Semi-finals, Final, Quarter-finals, etc.) render as-is.
 
+**Confirmed changes (2026-04-30 session — SportsAPI Pro v2 migration):**
+- **Backend migrated**: frontend now points at `rugbylive-api-v2` (port 4001, SportsAPI Pro). Old `rugbylive-api` (API-Sports) no longer used.
+- **`Match.week` → `Match.round`**: renamed throughout — `MatchCard`, `MatchHero`, `matches/page.tsx`, `types/index.ts`. SAP v2 returns `round` as a string from `roundInfo.name` (e.g. "Round 18" or "Semi-final"). MatchCard/MatchHero detect plain numbers and prepend "Rd"/"Round".
+- **`MatchHero` uses `isTerminal`** (was hardcoded `status === 'FT'`) for `finished` flag.
+- **`H2HSummary` type**: `{ homeWins, awayWins, draws }` — H2H tab on match detail shows wins/draws counts in three stat boxes, not a list of past matches (SAP doesn't return match list for H2H).
+- **`useLeagueSeasons` hook**: fetches `/leagues/:id/seasons`, returns `Season[]` sorted newest first. League detail page uses `seasons[0]` for standings + fixtures/results queries.
+- **Sidebar IDs updated** to SAP IDs: Six Nations=423, URC=419, Premiership=424, Top 14=420, Champions Cup=401, Super Rugby=422, Pro D2=1147, Rugby Championship=789, Int. Friendlies=876.
+- **SAP 503 on empty dates/seasons**: SAP returns 503 (not empty array) when no events exist for a schedule date or season. `getMatchesByDate`, `getTodayMatches`, `getSeasonEvents`, `getRoundEvents`, `getSeasons` all treat 503 as empty array now.
+- **`/leagues` endpoint**: returns from static `ALLOWED_LEAGUES` config (no SAP API call). Instantaneous response.
+- **League management without Firebase**: in-memory `leagueStore` initialized from allowlist. Admin toggles work for session lifetime.
+- **Confirmed SAP season IDs (2026-04-30)**: URC 25/26 = 79019, Six Nations 2026 = 86339. URC `events/last/0` 503s — SAP issue, empty state shown.
+- **Both type-checks pass clean**: `rugbylive-web` and `rugbylive-api-v2` TSC --noEmit 0 errors.
+
 ### Frontend Firebase upgrade (next step — not yet built)
 To get true real-time score updates (pushed from RTDB instead of polled from API):
 1. Firebase console → Project settings → General → Add web app → copy `firebaseConfig`
@@ -982,20 +995,16 @@ To get true real-time score updates (pushed from RTDB instead of polled from API
 | Task | Command |
 |---|---|
 | Frontend dev server | `cd rugbylive-web && npm run dev` (port 3000) |
-| Backend v1 dev server | `cd rugbylive-api && npx ts-node src/index.ts` (port 4000) |
-| Backend v2 dev server | `cd rugbylive-api-v2 && npx ts-node src/index.ts` (port 4001) |
-| Frontend type-check | `cd rugbylive-web && npm run type-check` |
-| Backend v1 type-check | `cd rugbylive-api && npm run type-check` |
-| Backend v2 type-check | `cd rugbylive-api-v2 && npm run type-check` |
+| **Backend dev server** | `cd rugbylive-api-v2 && npx ts-node src/index.ts` **(port 4001 — this is the active backend)** |
+| Frontend type-check | `cd rugbylive-web && ./node_modules/.bin/tsc --noEmit` |
+| Backend type-check | `cd rugbylive-api-v2 && ./node_modules/.bin/tsc --noEmit` |
 | Frontend tests | `cd rugbylive-web && npm test` |
 | Build frontend | `cd rugbylive-web && npm run build` |
-| Docker build (API v1) | `cd rugbylive-api && docker build -t rugbylive-api .` |
-| Docker build (API v2) | `cd rugbylive-api-v2 && docker build -t rugbylive-api-v2 .` |
+| Docker build (API) | `cd rugbylive-api-v2 && docker build -t rugbylive-api .` |
 
 ### Local env setup
-- Frontend: needs `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4000` (create when starting frontend work)
-- Backend v1: `rugbylive-api/.env` exists with `API_SPORTS_KEY` — in prod use Cloud Run Secret Manager
-- Backend v2: `rugbylive-api-v2/.env` exists with `SPORTS_API_PRO_KEY` and `PORT=4001` — gitignored
+- Frontend: `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4001` ✓ exists
+- Backend: `rugbylive-api-v2/.env` with `SPORTS_API_PRO_KEY=3ef65f7d-c716-4b78-8bf5-23f5b1c5922e` and `PORT=4001` ✓ exists (gitignored)
 
 ### Test strategy (from HANDOFF.md)
 - **Unit (Vitest)**: score ordering, `pointsDiff` formatting, status→badge mapping, `hashStr` stability

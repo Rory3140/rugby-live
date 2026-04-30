@@ -61,7 +61,7 @@ export default function MatchesPage() {
     const map = new Map<string, { competition: Match['competition']; matches: Match[]; round: string | null }>()
     for (const m of filtered) {
       const id = m.competition.id
-      if (!map.has(id)) map.set(id, { competition: m.competition, matches: [], round: m.week })
+      if (!map.has(id)) map.set(id, { competition: m.competition, matches: [], round: m.round })
       map.get(id)!.matches.push(m)
     }
     // Followed leagues first, rest alphabetically

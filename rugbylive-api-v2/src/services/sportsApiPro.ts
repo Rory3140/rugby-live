@@ -109,9 +109,12 @@ function normaliseTeam(t: SAPEvent['homeTeam']): Team {
 
 function normaliseCompetition(event: SAPEvent): Competition {
   const ut = event.tournament.uniqueTournament
+  // Use uniqueTournament.id as the competition ID — this is the stable competition identifier
+  // used throughout SportsAPI Pro (matches allowedLeagues IDs in leagueStore).
+  const id = ut ? String(ut.id) : String(event.tournament.id)
   return {
-    id: String(event.tournament.id),
-    name: event.tournament.name,
+    id,
+    name: ut?.name ?? event.tournament.name,
     logoUrl: null,
     primaryColor: ut?.primaryColorHex ?? null,
     secondaryColor: ut?.secondaryColorHex ?? null,
@@ -341,10 +344,18 @@ function normaliseStandingRow(row: import('../types/sportsApiPro').SAPStandingRo
 
 export async function getMatchesByDate(date: string): Promise<ApiResponse<Match[]>> {
   // date format: YYYY-MM-DD
-  const data = await sapFetch<SAPScheduleResponse>(`/api/schedule/${date}`)
-  return {
-    data: data.events.map(normaliseEvent),
-    meta: meta(),
+  // SAP returns 503 (not empty array) when no events exist for a date — treat as empty.
+  try {
+    const data = await sapFetch<SAPScheduleResponse>(`/api/schedule/${date}`)
+    return {
+      data: data.events.map(normaliseEvent),
+      meta: meta(),
+    }
+  } catch (err: any) {
+    if (err?.message?.includes('503')) {
+      return { data: [], meta: meta() }
+    }
+    throw err
   }
 }
 
@@ -358,10 +369,17 @@ export async function getLiveMatches(): Promise<ApiResponse<Match[]>> {
 }
 
 export async function getTodayMatches(): Promise<ApiResponse<Match[]>> {
-  const data = await sapFetch<SAPScheduleResponse>('/api/today')
-  return {
-    data: data.events.map(normaliseEvent),
-    meta: meta(),
+  try {
+    const data = await sapFetch<SAPScheduleResponse>('/api/today')
+    return {
+      data: data.events.map(normaliseEvent),
+      meta: meta(),
+    }
+  } catch (err: any) {
+    if (err?.message?.includes('503')) {
+      return { data: [], meta: meta() }
+    }
+    throw err
   }
 }
 
@@ -450,14 +468,22 @@ export async function getTournaments(): Promise<ApiResponse<Tournament[]>> {
 }
 
 export async function getSeasons(tournamentId: string): Promise<ApiResponse<Season[]>> {
-  const data = await sapFetch<SAPTournamentSeasonsResponse>(`/api/tournament/${tournamentId}/seasons`)
-  const seasons: Season[] = data.seasons.map((s) => ({
-    id: String(s.id),
-    name: s.name,
-    year: s.year,
-    editor: s.editor ?? false,
-  }))
-  return { data: seasons, meta: meta() }
+  // SAP may 503 for some tournament IDs — return empty array gracefully.
+  try {
+    const data = await sapFetch<SAPTournamentSeasonsResponse>(`/api/tournament/${tournamentId}/seasons`)
+    const seasons: Season[] = data.seasons.map((s) => ({
+      id: String(s.id),
+      name: s.name,
+      year: s.year,
+      editor: s.editor ?? false,
+    }))
+    return { data: seasons, meta: meta() }
+  } catch (err: any) {
+    if (err?.message?.includes('503')) {
+      return { data: [], meta: meta() }
+    }
+    throw err
+  }
 }
 
 export async function getStandings(tournamentId: string, seasonId: string): Promise<ApiResponse<Standings[]>> {
@@ -486,23 +512,37 @@ export async function getRounds(tournamentId: string, seasonId: string): Promise
 }
 
 export async function getSeasonEvents(tournamentId: string, seasonId: string): Promise<ApiResponse<Match[]>> {
-  // Returns most recent batch of events for a season — useful for Results tab
-  const data = await sapFetch<SAPScheduleResponse>(
-    `/api/tournament/${tournamentId}/season/${seasonId}/events/last/0`
-  )
-  return {
-    data: data.events.map(normaliseEvent),
-    meta: meta(),
+  // Returns most recent batch of events for a season — SAP 503s when no events exist yet.
+  try {
+    const data = await sapFetch<SAPScheduleResponse>(
+      `/api/tournament/${tournamentId}/season/${seasonId}/events/last/0`
+    )
+    return {
+      data: data.events.map(normaliseEvent),
+      meta: meta(),
+    }
+  } catch (err: any) {
+    if (err?.message?.includes('503')) {
+      return { data: [], meta: meta() }
+    }
+    throw err
   }
 }
 
 export async function getRoundEvents(tournamentId: string, seasonId: string, round: string): Promise<ApiResponse<Match[]>> {
-  const data = await sapFetch<SAPScheduleResponse>(
-    `/api/tournament/${tournamentId}/season/${seasonId}/events/round/${round}`
-  )
-  return {
-    data: data.events.map(normaliseEvent),
-    meta: meta(),
+  try {
+    const data = await sapFetch<SAPScheduleResponse>(
+      `/api/tournament/${tournamentId}/season/${seasonId}/events/round/${round}`
+    )
+    return {
+      data: data.events.map(normaliseEvent),
+      meta: meta(),
+    }
+  } catch (err: any) {
+    if (err?.message?.includes('503')) {
+      return { data: [], meta: meta() }
+    }
+    throw err
   }
 }
 

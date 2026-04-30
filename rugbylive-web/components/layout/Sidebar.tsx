@@ -7,11 +7,11 @@ import { useLeagues } from '@/hooks/useLeagues'
 const SECTIONS = [
   {
     label: 'International',
-    ids: ['51', '85', '93', '86'],
+    ids: ['423', '789', '876'],
   },
   {
     label: 'Club',
-    ids: ['76', '13', '16', '71', '54', '17'],
+    ids: ['419', '424', '420', '401', '422', '1147'],
   },
 ]
 

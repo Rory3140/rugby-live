@@ -5,7 +5,6 @@ import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useMatch, useH2H } from '@/hooks/useMatch'
 import MatchHero from '@/components/match/MatchHero'
-import MatchCard from '@/components/matches/MatchCard'
 
 type Tab = 'Score' | 'H2H'
 
@@ -13,7 +12,7 @@ export default function MatchPage({ params }: { params: { id: string } }) {
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('Score')
   const { data: match, isLoading } = useMatch(params.id)
-  const { data: h2h = [] } = useH2H(params.id)
+  const { data: h2h } = useH2H(params.id)
 
   if (isLoading) {
     return (
@@ -145,15 +144,44 @@ export default function MatchPage({ params }: { params: { id: string } }) {
         )}
 
         {tab === 'H2H' && (
-          h2h.length > 0
-            ? <div>
-                <div className="rl-label" style={{ marginBottom: 12 }}>Head to Head</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {h2h.map(m => <MatchCard key={m.id} match={m} showDate showComp />)}
+          h2h
+            ? <div style={{
+                background: 'var(--surf)',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                padding: '20px 24px',
+              }}>
+                <div className="rl-label" style={{ marginBottom: 16 }}>Head to Head</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  {[
+                    { label: match.homeTeam.shortName, value: h2h.homeWins, accent: true },
+                    { label: 'Draws', value: h2h.draws, accent: false },
+                    { label: match.awayTeam.shortName, value: h2h.awayWins, accent: true },
+                  ].map(({ label, value, accent }) => (
+                    <div key={label} style={{
+                      textAlign: 'center',
+                      padding: '16px 12px',
+                      background: 'var(--surf2)',
+                      borderRadius: 8,
+                    }}>
+                      <div className="rl-mono" style={{
+                        fontSize: 32,
+                        fontWeight: 700,
+                        color: accent ? 'var(--text)' : 'var(--text2)',
+                        lineHeight: 1,
+                        marginBottom: 6,
+                      }}>
+                        {value}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 600 }}>
+                        {label}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             : <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>
-                No previous meetings found.
+                No head-to-head data available.
               </div>
         )}
       </motion.div>

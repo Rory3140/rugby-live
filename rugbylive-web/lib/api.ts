@@ -1,7 +1,7 @@
-import type { Match, Standing, League } from '@/types'
+import type { Match, Standing, League, Season, H2HSummary } from '@/types'
 import { makeShortName } from './utils'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4001'
 
 async function apiFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`)
@@ -23,6 +23,13 @@ function normaliseMatch(m: any): Match {
       ...m.competition,
       shortName: makeShortName(m.competition.name),
     },
+    // v2 uses 'round'; ensure overtime period exists for backward compat
+    round: m.round ?? m.week ?? null,
+    periods: {
+      first:    m.periods?.first    ?? { home: null, away: null },
+      second:   m.periods?.second   ?? { home: null, away: null },
+      overtime: m.periods?.overtime ?? { home: null, away: null },
+    },
   }
 }
 
@@ -36,27 +43,50 @@ export async function fetchMatch(id: string): Promise<Match> {
   return normaliseMatch(data)
 }
 
-export async function fetchH2H(id: string): Promise<Match[]> {
-  const data = await apiFetch<any[]>(`/matches/${id}/h2h`)
-  return data.map(normaliseMatch)
+export async function fetchH2HSummary(id: string): Promise<H2HSummary> {
+  return apiFetch<H2HSummary>(`/matches/${id}/h2h`)
 }
 
 export async function fetchLeagues(): Promise<League[]> {
   const data = await apiFetch<any[]>('/leagues')
   return data.map(l => ({
     ...l,
-    shortName: makeShortName(l.name),
+    shortName: l.shortName ?? makeShortName(l.name),
   }))
 }
 
-export async function fetchStandings(leagueId: string, season?: number): Promise<Standing[]> {
-  const qs = season ? `?season=${season}` : ''
-  const data = await apiFetch<any[]>(`/leagues/${leagueId}/standings${qs}`)
-  return data.map(s => ({ ...s, team: addTeamShortName(s.team) }))
+export async function fetchLeagueSeasons(leagueId: string): Promise<Season[]> {
+  const data = await apiFetch<Season[]>(`/leagues/${leagueId}/seasons`)
+  return data
 }
 
-export async function fetchLeagueMatches(leagueId: string, season?: number): Promise<Match[]> {
-  const qs = season ? `?season=${season}` : ''
-  const data = await apiFetch<any[]>(`/leagues/${leagueId}/games${qs}`)
+export async function fetchStandings(leagueId: string, seasonId?: string): Promise<Standing[]> {
+  if (!seasonId) return []
+  // v2 returns Standings[] (array of tables). We flatten to first table's rows.
+  const data = await apiFetch<any[]>(`/leagues/${leagueId}/standings?season=${seasonId}`)
+  if (!data || data.length === 0) return []
+
+  // data is Standings[] — each has { type, rows: StandingRow[] }
+  const firstTable = data[0]
+  const rows = firstTable?.rows ?? firstTable ?? []
+  return rows.map((s: any) => ({
+    position:      s.position,
+    team:          addTeamShortName(s.team),
+    played:        s.played,
+    won:           s.won,
+    drawn:         s.drawn,
+    lost:          s.lost,
+    pointsFor:     s.pointsFor,
+    pointsAgainst: s.pointsAgainst,
+    pointsDiff:    s.pointsDiff,
+    points:        s.points,
+    form:          s.form ?? null,
+    description:   s.promotion ?? s.description ?? null,
+  }))
+}
+
+export async function fetchLeagueMatches(leagueId: string, seasonId?: string): Promise<Match[]> {
+  if (!seasonId) return []
+  const data = await apiFetch<any[]>(`/leagues/${leagueId}/games?season=${seasonId}`)
   return data.map(normaliseMatch)
 }

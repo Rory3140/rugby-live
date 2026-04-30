@@ -1,4 +1,4 @@
-export type MatchStatus = 'NS' | '1H' | 'HT' | '2H' | 'FT' | 'ET' | 'PEN' | string
+export type MatchStatus = 'NS' | '1H' | 'HT' | '2H' | 'FT' | 'ET' | 'PEN' | 'CANC' | 'PST' | 'ABD' | string
 
 export interface Team {
   id: string
@@ -12,8 +12,6 @@ export interface Competition {
   name: string
   shortName: string
   logoUrl: string | null
-  type: 'league' | 'cup'
-  season: number
 }
 
 export interface Match {
@@ -25,7 +23,7 @@ export interface Match {
   awayScore: number | null
   status: MatchStatus
   kickoff: string
-  week: string | null
+  round: string | null    // round number or name e.g. "Round 18", "Semi-final" (was 'week' in v1)
   periods: {
     first:    { home: number | null; away: number | null }
     second:   { home: number | null; away: number | null }
@@ -53,9 +51,19 @@ export interface League {
   name: string
   shortName: string
   logoUrl: string | null
-  type: 'League' | 'Cup'
   country: string | null
-  category: string | null   // admin override: 'International' | 'Club' | 'Sevens' | null (null = auto-detect)
-  seasons: number[]
-  currentSeason: number | null
+  category: string | null   // 'International' | 'Club' | 'Sevens' | null
+  active?: boolean          // present on admin endpoints
+}
+
+export interface Season {
+  id: string    // SAP internal season ID (e.g. "82834") — use for standings/games API calls
+  name: string  // e.g. "URC 2024/2025"
+  year: string  // e.g. "2024/2025"
+}
+
+export interface H2HSummary {
+  homeWins: number
+  awayWins: number
+  draws: number
 }

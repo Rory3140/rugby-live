@@ -1,10 +1,11 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import * as sap from '../services/sportsApiPro'
+import { getActiveIds } from '../config/leagueStore'
 
 const router = Router()
 
 // ─── GET /matches?date=YYYY-MM-DD ─────────────────────────────────────────────
-// Returns all matches for a given date. Defaults to today.
+// Returns all matches for a given date, filtered to active/allowed leagues.
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const date = typeof req.query.date === 'string'
@@ -12,6 +13,8 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       : new Date().toISOString().slice(0, 10)
 
     const result = await sap.getMatchesByDate(date)
+    const activeIds = getActiveIds()
+    result.data = result.data.filter(m => activeIds.has(m.competition.id))
     res.json(result)
   } catch (err) {
     next(err)

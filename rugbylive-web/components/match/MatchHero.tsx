@@ -3,16 +3,16 @@ import TeamCrest from '@/components/ui/TeamCrest'
 import CompLogo from '@/components/ui/CompLogo'
 import LiveBadge from '@/components/ui/LiveBadge'
 import type { Match } from '@/types'
-import { isLive, formatKickoff } from '@/lib/utils'
+import { isLive, isTerminal, formatKickoff } from '@/lib/utils'
 
 interface Props {
   match: Match
 }
 
 export default function MatchHero({ match }: Props) {
-  const { homeTeam, awayTeam, homeScore, awayScore, status, kickoff, competition, week } = match
+  const { homeTeam, awayTeam, homeScore, awayScore, status, kickoff, competition, round } = match
   const live = isLive(status)
-  const finished = status === 'FT'
+  const finished = isTerminal(status)
   const scoreColor = live ? 'var(--live)' : 'var(--text)'
 
   const homeWon = finished && homeScore != null && awayScore != null && homeScore > awayScore
@@ -31,8 +31,8 @@ export default function MatchHero({ match }: Props) {
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)' }}>
           {competition.name}
         </span>
-        {week && (
-          <span style={{ fontSize: 11, color: 'var(--text3)' }}>· Round {week}</span>
+        {round && (
+          <span style={{ fontSize: 11, color: 'var(--text3)' }}>· {/^\d+$/.test(round) ? `Round ${round}` : round}</span>
         )}
         <div style={{ flex: 1 }} />
         {live && <LiveBadge clock={status} />}

@@ -19,8 +19,8 @@ export default function MatchCard({ match, showDate, showComp }: Props) {
   const homeWon = finished && homeScore != null && awayScore != null && homeScore > awayScore
   const awayWon = finished && homeScore != null && awayScore != null && awayScore > homeScore
 
-  const roundLabel = match.week
-    ? /^\d+$/.test(match.week) ? `Rd ${match.week}` : match.week
+  const roundLabel = match.round
+    ? /^\d+$/.test(match.round) ? `Rd ${match.round}` : match.round
     : null
 
   return (
