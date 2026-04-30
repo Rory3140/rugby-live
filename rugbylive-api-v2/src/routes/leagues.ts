@@ -16,6 +16,18 @@ router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
   }
 })
 
+// ─── GET /leagues/:id ────────────────────────────────────────────────────────
+// Full tournament info — title holder, competition color, hasRounds/hasGroups flags.
+// Also includes startDateTimestamp and endDateTimestamp if available.
+router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await sap.getTournamentInfo(String(req.params['id']))
+    res.json(result)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // ─── GET /leagues/:id/seasons ─────────────────────────────────────────────────
 // Returns available seasons for a tournament, most recent first.
 // Season IDs are required for standings, rounds, and events endpoints.

@@ -6,6 +6,7 @@ import { rateLimiter } from './middleware/rateLimiter'
 import { errorHandler } from './middleware/errorHandler'
 import matchesRouter from './routes/matches'
 import leaguesRouter from './routes/leagues'
+import teamsRouter from './routes/teams'
 import pollRouter from './routes/poll'
 
 const app = express()
@@ -26,6 +27,7 @@ app.get('/health', (_req, res) => {
 
 app.use('/matches', matchesRouter)
 app.use('/leagues', leaguesRouter)
+app.use('/teams', teamsRouter)
 app.use('/poll', pollRouter)
 
 // ─── Error handler (must be last) ─────────────────────────────────────────────

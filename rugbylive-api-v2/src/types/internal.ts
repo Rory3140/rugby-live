@@ -189,6 +189,7 @@ export interface Tournament {
   hasRounds: boolean
   hasGroups: boolean
   userCount: number | null
+  titleHolder: string | null    // defending champion team name
 }
 
 export interface Season {
@@ -200,4 +201,47 @@ export interface Season {
 
 export interface Round {
   round: number
+}
+
+// ─── Team profile ─────────────────────────────────────────────────────────────
+
+export interface TeamProfile {
+  id: string
+  name: string
+  shortName: string
+  nameCode: string
+  primaryColor: string | null
+  secondaryColor: string | null
+  venue: string | null          // home ground name
+  form: string | null           // e.g. "W-L-W-W-L" from pregameForm.value
+}
+
+// ─── Team match history ───────────────────────────────────────────────────────
+
+export interface TeamMatches {
+  matches: Match[]
+  hasNextPage: boolean
+}
+
+// ─── Coaches ─────────────────────────────────────────────────────────────────
+
+export interface Coaches {
+  home: { id: string; name: string; shortName: string } | null
+  away: { id: string; name: string; shortName: string } | null
+}
+
+// ─── Head-to-head summary ─────────────────────────────────────────────────────
+
+export interface H2HSummary {
+  homeWins: number
+  awayWins: number
+  draws: number
+}
+
+// ─── Fan vote ─────────────────────────────────────────────────────────────────
+
+export interface Vote {
+  homeVotes: number
+  awayVotes: number
+  drawVotes: number
 }

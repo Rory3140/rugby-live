@@ -13,6 +13,7 @@ import {
   SAPTournamentSeasonsResponse,
   SAPRoundsResponse,
   SAPCategoryTournamentsResponse,
+  SAPTournamentInfo,
 } from '../types/sportsApiPro'
 import {
   ApiResponse,
@@ -20,7 +21,6 @@ import {
   MatchStatus,
   Team,
   Competition,
-  PeriodScores,
   Incident,
   IncidentType,
   Stat,
@@ -172,6 +172,7 @@ function mapIncidentType(inc: SAPIncident): IncidentType | null {
     return null
   }
   if (inc.incidentType === 'substitution') return 'substitution'
+  // Cards arrive as incidentType: 'card' or as goals with class 'yellow'/'red'
   if (inc.incidentType === 'card') {
     if (inc.incidentClass === 'yellow') return 'yellow_card'
     if (inc.incidentClass === 'red') return 'red_card'
@@ -179,11 +180,14 @@ function mapIncidentType(inc: SAPIncident): IncidentType | null {
   }
   if (inc.incidentType === 'goal') {
     switch (inc.incidentClass) {
-      case 'try':        return 'try'
-      case 'twoPoints':  return 'conversion'
-      case 'threePoints': return 'penalty'
-      case 'dropGoal':   return 'drop_goal'
-      default:           return 'try'
+      case 'try':         return 'try'
+      case 'twoPoints':   return 'conversion'   // union conversion (2pts)
+      case 'onePoint':    return 'conversion'   // league conversion (1pt)
+      case 'threePoints': return 'penalty'      // penalty goal (3pts)
+      case 'dropGoal':    return 'drop_goal'
+      case 'yellow':      return 'yellow_card'  // observed in some feeds
+      case 'red':         return 'red_card'
+      default:            return 'try'
     }
   }
   return null
@@ -361,40 +365,13 @@ export async function getTodayMatches(): Promise<ApiResponse<Match[]>> {
   }
 }
 
-export async function getMatch(id: string, date?: string): Promise<ApiResponse<Match>> {
-  // SportsAPI Pro /api/match/:id is currently 503 — not available as a standalone endpoint.
-  // If a date is provided, look up the match from that day's schedule (fastest path).
-  // Without a date, fall back to today's schedule then yesterday's.
-  const targetId = String(id)
-
-  const trySchedule = async (d: string): Promise<SAPEvent | null> => {
-    try {
-      const data = await sapFetch<SAPScheduleResponse>(`/api/schedule/${d}`)
-      return data.events.find((e) => String(e.id) === targetId) ?? null
-    } catch {
-      return null
-    }
+export async function getMatch(id: string): Promise<ApiResponse<Match>> {
+  // /api/match/:id now confirmed working — returns full event with venue + referee
+  const data = await sapFetch<{ event: SAPEvent }>(`/api/match/${id}`)
+  return {
+    data: normaliseEvent(data.event),
+    meta: meta(),
   }
-
-  if (date) {
-    const event = await trySchedule(date)
-    if (event) return { data: normaliseEvent(event), meta: meta() }
-  }
-
-  // Try today, yesterday, and tomorrow as fallback
-  const today = new Date()
-  const candidates = [-1, 0, 1].map((offset) => {
-    const d = new Date(today)
-    d.setDate(d.getDate() + offset)
-    return d.toISOString().slice(0, 10)
-  })
-
-  for (const d of candidates) {
-    const event = await trySchedule(d)
-    if (event) return { data: normaliseEvent(event), meta: meta() }
-  }
-
-  throw new Error(`Match ${id} not found in schedule for today ±1 day. Pass ?date=YYYY-MM-DD for older matches.`)
 }
 
 export async function getIncidents(id: string): Promise<ApiResponse<Incident[]>> {
@@ -463,6 +440,7 @@ export async function getTournaments(): Promise<ApiResponse<Tournament[]>> {
           hasRounds: t.hasRounds ?? false,
           hasGroups: t.hasGroups ?? false,
           userCount: t.userCount ?? null,
+          titleHolder: null,
         })
       }
     }
@@ -524,6 +502,154 @@ export async function getRoundEvents(tournamentId: string, seasonId: string, rou
   )
   return {
     data: data.events.map(normaliseEvent),
+    meta: meta(),
+  }
+}
+
+// ─── Tournament info ──────────────────────────────────────────────────────────
+
+export async function getTournamentInfo(tournamentId: string): Promise<ApiResponse<import('../types/internal').Tournament>> {
+  const data = await sapFetch<SAPTournamentInfo>(`/api/tournament/${tournamentId}/info`)
+  const ut = data.uniqueTournament
+  return {
+    data: {
+      id: String(ut.id),
+      name: ut.name,
+      primaryColor: ut.primaryColorHex ?? null,
+      secondaryColor: ut.secondaryColorHex ?? null,
+      hasRounds: ut.hasRounds ?? false,
+      hasGroups: ut.hasGroups ?? false,
+      userCount: null,
+      titleHolder: ut.titleHolder?.name ?? null,
+    },
+    meta: meta(),
+  }
+}
+
+// ─── Team profile ─────────────────────────────────────────────────────────────
+
+export async function getTeam(teamId: string): Promise<ApiResponse<import('../types/internal').TeamProfile>> {
+  const data = await sapFetch<{
+    team: {
+      id: number; name: string; shortName: string; nameCode: string
+      teamColors?: { primary: string; secondary: string }
+      venue?: { name?: string }
+    }
+    pregameForm?: { value?: string }
+  }>(`/api/teams/${teamId}`)
+
+  const t = data.team
+  return {
+    data: {
+      id: String(t.id),
+      name: t.name,
+      shortName: t.shortName,
+      nameCode: t.nameCode,
+      primaryColor: t.teamColors?.primary ?? null,
+      secondaryColor: t.teamColors?.secondary ?? null,
+      venue: t.venue?.name ?? null,
+      form: data.pregameForm?.value ?? null,
+    },
+    meta: meta(),
+  }
+}
+
+// ─── Team last results (paginated, 30 per page) ───────────────────────────────
+
+export async function getTeamLastResults(teamId: string, page = 0): Promise<ApiResponse<import('../types/internal').TeamMatches>> {
+  const data = await sapFetch<{ events: SAPEvent[]; hasNextPage: boolean }>(
+    `/api/teams/${teamId}/events/last/${page}`
+  )
+  return {
+    data: {
+      matches: data.events.map(normaliseEvent),
+      hasNextPage: data.hasNextPage,
+    },
+    meta: meta(),
+  }
+}
+
+// ─── Team upcoming fixtures (paginated) ──────────────────────────────────────
+
+export async function getTeamNextFixtures(teamId: string, page = 0): Promise<ApiResponse<import('../types/internal').TeamMatches>> {
+  const data = await sapFetch<{ events: SAPEvent[]; hasNextPage: boolean }>(
+    `/api/teams/${teamId}/events/next/${page}`
+  )
+  return {
+    data: {
+      matches: data.events.map(normaliseEvent),
+      hasNextPage: data.hasNextPage,
+    },
+    meta: meta(),
+  }
+}
+
+// ─── Team near-events (previous + next match) ─────────────────────────────────
+
+export async function getTeamNearEvents(teamId: string): Promise<ApiResponse<{ previous: Match | null; next: Match | null }>> {
+  const data = await sapFetch<{ previousEvent?: SAPEvent; nextEvent?: SAPEvent }>(
+    `/api/teams/${teamId}/near-events`
+  )
+  return {
+    data: {
+      previous: data.previousEvent ? normaliseEvent(data.previousEvent) : null,
+      next: data.nextEvent ? normaliseEvent(data.nextEvent) : null,
+    },
+    meta: meta(),
+  }
+}
+
+// ─── Match coaches ────────────────────────────────────────────────────────────
+
+export async function getManagers(id: string): Promise<ApiResponse<import('../types/internal').Coaches>> {
+  const data = await sapFetch<{
+    homeManager?: { id: number; name: string; shortName: string } | null
+    awayManager?: { id: number; name: string; shortName: string } | null
+  }>(`/api/match/${id}/managers`)
+
+  return {
+    data: {
+      home: data.homeManager
+        ? { id: String(data.homeManager.id), name: data.homeManager.name, shortName: data.homeManager.shortName }
+        : null,
+      away: data.awayManager
+        ? { id: String(data.awayManager.id), name: data.awayManager.name, shortName: data.awayManager.shortName }
+        : null,
+    },
+    meta: meta(),
+  }
+}
+
+// ─── Match H2H summary ────────────────────────────────────────────────────────
+
+export async function getH2HSummary(id: string): Promise<ApiResponse<import('../types/internal').H2HSummary>> {
+  const data = await sapFetch<{
+    teamDuel?: { homeWins: number; awayWins: number; draws: number } | null
+  }>(`/api/match/${id}/h2h`)
+
+  return {
+    data: {
+      homeWins: data.teamDuel?.homeWins ?? 0,
+      awayWins: data.teamDuel?.awayWins ?? 0,
+      draws: data.teamDuel?.draws ?? 0,
+    },
+    meta: meta(),
+  }
+}
+
+// ─── Fan votes ────────────────────────────────────────────────────────────────
+
+export async function getVotes(id: string): Promise<ApiResponse<import('../types/internal').Vote>> {
+  const data = await sapFetch<{
+    vote?: { vote1: number; vote2: number; voteX: number }
+  }>(`/api/match/${id}/votes`)
+
+  return {
+    data: {
+      homeVotes: data.vote?.vote1 ?? 0,
+      awayVotes: data.vote?.vote2 ?? 0,
+      drawVotes: data.vote?.voteX ?? 0,
+    },
     meta: meta(),
   }
 }

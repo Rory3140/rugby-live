@@ -41,15 +41,13 @@ router.get('/today', async (_req: Request, res: Response, next: NextFunction) =>
   }
 })
 
-// ─── GET /matches/:id?date=YYYY-MM-DD ────────────────────────────────────────
+// ─── GET /matches/:id ────────────────────────────────────────────────────────
 // Returns a single match by its SportsAPI Pro event ID.
-// Provide ?date= for older matches — without it, today ±1 day is searched.
-// Note: SportsAPI Pro /api/match/:id is 503 — this endpoint uses the schedule
-// as its source, which means it's slightly slower for historic lookups.
+// Uses /api/match/:id directly (confirmed working as of 2026-04-30).
+// Returns full match data including venue name and referee name.
 router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const date = typeof req.query.date === 'string' ? req.query.date : undefined
-    const result = await sap.getMatch(String(req.params['id']), date)
+    const result = await sap.getMatch(String(req.params['id']))
     res.json(result)
   } catch (err) {
     next(err)
@@ -114,6 +112,42 @@ router.get('/:id/player-statistics', async (req: Request, res: Response, next: N
 router.get('/:id/highlights', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await sap.getHighlights(String(req.params['id']))
+    res.json(result)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ─── GET /matches/:id/managers ────────────────────────────────────────────────
+// Head coaches for both teams in a match.
+// Returns { home: { id, name, shortName }, away: { ... } } — either may be null.
+router.get('/:id/managers', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await sap.getManagers(String(req.params['id']))
+    res.json(result)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ─── GET /matches/:id/h2h ─────────────────────────────────────────────────────
+// Head-to-head record between the two teams — wins, draws, losses summary.
+// Returns { homeWins, awayWins, draws } — all-time record, not season-filtered.
+router.get('/:id/h2h', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await sap.getH2HSummary(String(req.params['id']))
+    res.json(result)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ─── GET /matches/:id/votes ───────────────────────────────────────────────────
+// Fan prediction votes — who do supporters think will win?
+// Returns { homeVotes, awayVotes, drawVotes } as raw counts.
+router.get('/:id/votes', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await sap.getVotes(String(req.params['id']))
     res.json(result)
   } catch (err) {
     next(err)
