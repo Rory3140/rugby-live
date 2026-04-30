@@ -1,6 +1,6 @@
 # SportsAPI Pro — Rugby V2 API (Live Test Results)
 
-> Tested: 2026-04-29 | Key: personal API key  
+> Last tested: 2026-04-30 | Key: personal API key  
 > Base URL: `https://v2.rugby.sportsapipro.com`  
 > Auth: `x-api-key: YOUR_KEY` header on every request
 
@@ -8,31 +8,41 @@
 
 ## What Works vs What Doesn't (Tested)
 
-Many endpoints return `503 Upstream error`. The four match sub-endpoints that consistently return real data are the most important ones.
-
 | Endpoint | Status | Notes |
 |---|---|---|
-| `GET /api/today` | ✅ Works | Returns today's matches |
-| `GET /api/schedule/:date` | ✅ Works | Full day schedule — 170 matches on Sat 26 Apr |
-| `GET /api/match/:id/incidents` | ✅ Works | Try scorers, conversions, cards — real player names + minutes |
-| `GET /api/match/:id/statistics` | ✅ Works | Possession, scoring, penalties, turnovers — by period |
+| `GET /api/today` | ✅ Works | Today's matches |
+| `GET /api/live` | ✅ Works | Live matches — returns `data: null` (not error) when nothing live |
+| `GET /api/schedule/:date` | ✅ Works | Full day schedule — 170 matches on a busy Saturday |
+| `GET /api/match/:id` | ✅ Works | Single match — full event including **venue + referee** |
+| `GET /api/match/:id/incidents` | ✅ Works | Try timeline — scorer names, minutes, running score |
+| `GET /api/match/:id/statistics` | ✅ Works | 60 stats across ALL/1ST/2ND periods |
 | `GET /api/match/:id/lineups` | ✅ Works | Starters + bench, shirt numbers, positions |
 | `GET /api/match/:id/player-statistics` | ✅ Works | Per-player carries, metres, tackles, tries |
-| `GET /api/teams/:id` | ✅ Works | Team name, category, tournament info |
-| `GET /api/live` | ❌ 502 | Dedicated live endpoint broken |
-| `GET /api/live/all` | ❌ No data | Returns empty events array |
-| `GET /api/search` | ❌ 503 | — |
-| `GET /api/countries` | ❌ Empty | Returns 0 categories |
-| `GET /api/tournament/:id/info` | ❌ 503 | Tested IDs: 294, 419, 420, 422, 424 |
-| `GET /api/tournament/:id/seasons` | ❌ 503 / empty | — |
-| `GET /api/match/:id/award` | ❌ 503 | Man of the Match |
-| `GET /api/match/:id/h2h` | ❌ 503 | Head-to-head history |
-| `GET /api/match/:id/scores` | ❌ 404 | Half-by-half scores |
-| `GET /api/match/:id/venue` | ❌ 503 | — |
-| `GET /api/match/:id/referee` | ❌ 503 | — |
-| `GET /api/match/:id/best-players` | ❌ 503 | — |
-| `GET /api/match/:id/missing-players` | ❌ 503 | — |
-| `GET /api/players/:id` | ❌ 503 | Player profiles |
+| `GET /api/match/:id/highlights` | ✅ Works | YouTube URL + thumbnail |
+| `GET /api/match/:id/managers` | ✅ Works | Head coaches for both teams |
+| `GET /api/match/:id/h2h` | ✅ Works | H2H summary — homeWins/awayWins/draws (no match list) |
+| `GET /api/match/:id/votes` | ✅ Works | Fan prediction vote counts (home/draw/away) |
+| `GET /api/teams/:id` | ✅ Works | Team name, nameCode, teamColors, home venue, pregame form |
+| `GET /api/teams/:id/near-events` | ✅ Works | Previous result + next fixture |
+| `GET /api/teams/:id/events/last/:page` | ✅ Works | Paginated results, 30 per page |
+| `GET /api/teams/:id/events/next/:page` | ✅ Works | Paginated upcoming fixtures |
+| `GET /api/teams/:id/image` | ✅ Works | Returns raw PNG binary (requires auth header) |
+| `GET /api/tournament/:id/info` | ✅ Works | Competition details, title holder, colors |
+| `GET /api/tournament/:id/seasons` | ✅ Works | Season list with IDs |
+| `GET /api/tournament/:id/season/:sid/standings` | ✅ Works | Full table |
+| `GET /api/tournament/:id/season/:sid/rounds` | ✅ Works | Round list + current round |
+| `GET /api/tournament/:id/season/:sid/events/last/:page` | ✅ Works | Recent results |
+| `GET /api/tournament/:id/season/:sid/events/round/:r` | ✅ Works | Specific round matches |
+| `GET /api/categories/:id/tournaments` | ✅ Works | All competitions in a category |
+| `GET /api/match/:id/award` | ❌ 404 | Man of the Match — not available |
+| `GET /api/match/:id/scores` | ❌ 404 | Redundant — period scores in schedule response |
+| `GET /api/match/:id/venue` | ❌ 404 | Venue in `/api/match/:id` directly |
+| `GET /api/match/:id/referee` | ❌ 404 | Referee in `/api/match/:id` directly |
+| `GET /api/match/:id/best-players` | ❌ 404 | Not available |
+| `GET /api/match/:id/missing-players` | ❌ 404 | Not available |
+| `GET /api/players/:id` | ❌ 404 | Player profiles not available |
+| `GET /api/search` | ❌ 503 | Search not available |
+| `GET /api/tournament/:id/season/:sid/top-scorers` | ❌ 404 | Not available |
 
 ---
 
@@ -373,21 +383,40 @@ No logo URL returned directly — images served separately at `/api/teams/:id/im
 
 ## What This Means for RugbyLive
 
-### The unlock
-The four working match endpoints are the key ones for match detail pages:
-- **Incidents** → try timeline with scorer names and minutes ✅
-- **Statistics** → possession, tries, penalties — by half ✅
-- **Lineups** → starting XV + bench ✅
-- **Player stats** → individual match stats ✅
+### Full capability confirmed (2026-04-30)
 
-### The problem
-The live/discovery layer is broken:
-- `/api/live` returns 502 — can't use dedicated live endpoint
-- `/api/search` returns 503 — can't look up team/tournament IDs
-- `/api/tournament/:id/seasons` returns 503 — can't get season IDs for standings
-- Half-by-half scores (`/scores`) returns 404 — but period scores ARE in the schedule event object (`homeScore.period1`, `homeScore.period2`) so this is redundant
+**Schedule layer** ✅
+- `/api/schedule/:date` — 170 matches on a busy Saturday, full period scores embedded
+- `/api/live` — dedicated live endpoint (no need to poll by date and filter)
+- `/api/today` — today's full schedule
 
-### Practical upshot
-The match-level data is genuinely better than API-Sports (which has no incidents, stats, or lineups). But the discovery/live layer isn't reliable enough to replace API-Sports as the primary data source right now.
+**Single match** ✅ (was 503, now working)
+- `/api/match/:id` — full event including **venue name** and **referee name**
+- No more schedule-fallback needed
 
-**Best path**: use SportsAPI Pro for match detail enrichment (incidents, lineups, stats tabs) while keeping API-Sports for the schedule + live polling layer. IDs will differ between the two APIs — need a mapping step.
+**Match detail** ✅
+- **Incidents** → full try timeline with scorer, minute, running score
+- **Statistics** → 60 stats across ALL/1ST/2ND — possession, carries, metres, tackles, lineouts, scrums, turnovers
+- **Lineups** → starting XV + bench (15+8 each side)
+- **Player stats** → 46 players, per-player tries/tackles/carries/metres
+- **Highlights** → YouTube URL + thumbnail
+- **Managers** → head coach name for both teams
+- **H2H** → homeWins/awayWins/draws all-time record
+- **Votes** → fan prediction counts
+
+**Teams** ✅
+- Profile: name, nameCode, teamColors hex, home venue, form string
+- Near-events: previous result + next fixture in one call
+- Paginated results history and upcoming fixtures
+
+**Competitions** ✅
+- 129 tournaments from categories 82 (union) + 83 (league)
+- Tournament info: title holder, colors, hasRounds/hasGroups flags
+- Season list — IDs needed for standings/rounds/games
+- Standings, rounds, round-by-round games, recent results
+
+### Only things missing
+- **H2H match list** — `/h2h` returns win/loss summary only, no list of past meetings
+- **Player profiles** — no career stats, bio, or history
+- **League top scorers** — not available
+- **Search** — team/tournament lookup by name not available (use IDs from match objects)
