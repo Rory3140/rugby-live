@@ -1,13 +1,15 @@
 import fetch from 'node-fetch'
-import type { Match, Standing, PeriodScores } from '../types/internal'
+import type { Match, Standing, PeriodScores, Incident } from '../types/internal'
+import type { Lineups, LineupPlayer } from '../types/detail'
 
 const BASE = 'https://v2.rugby.sportsapipro.com'
 const KEY = process.env.SAP_KEY ?? ''
 const TIMEOUT = 8000
+const DETAIL_TIMEOUT = 4000  // strict cap for match detail calls — SAP is unreliable
 
-async function sapFetch<T>(path: string): Promise<T | null> {
+async function sapFetch<T>(path: string, timeoutMs = TIMEOUT): Promise<T | null> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const res = await fetch(`${BASE}${path}`, {
       headers: { 'x-api-key': KEY },
@@ -124,4 +126,75 @@ export async function fetchLeagueMatches(sapId: string, season: string, leagueId
   const data = await sapFetch<any[]>(`/games?leagueId=${sapId}&season=${season}`)
   if (!Array.isArray(data)) return []
   return data.map(g => normMatch(g, leagueId, leagueName, leagueLogo))
+}
+
+// ── Match detail fetchers (4s timeout) ────────────────────────────────────────
+
+function normSapLineupPlayer(p: any): LineupPlayer {
+  const player = p.player ?? p
+  return {
+    name: player.name ?? player.shortName ?? '',
+    shortName: player.shortName ?? null,
+    number: p.shirtNumber ?? p.jerseyNumber ?? null,
+    position: p.position ?? player.position ?? null,
+    height: player.height ?? null,
+    country: player.country?.name ?? null,
+  }
+}
+
+export async function fetchSapLineups(sapMatchId: number): Promise<Lineups | null> {
+  const data = await sapFetch<any>(`/api/match/${sapMatchId}/lineups`, DETAIL_TIMEOUT)
+  if (!data || (!data.home && !data.away)) return null
+
+  const mapSide = (side: any) => {
+    const players: any[] = side?.players ?? []
+    return {
+      starters:    players.filter(p => !p.substitute).map(normSapLineupPlayer),
+      substitutes: players.filter(p => p.substitute).map(normSapLineupPlayer),
+    }
+  }
+
+  const home = mapSide(data.home)
+  const away = mapSide(data.away)
+  if (home.starters.length === 0 && away.starters.length === 0) return null
+  return { home, away }
+}
+
+// SAP incident incidentType is "goal" | "card" | "period" | "substitution"
+// incidentClass tells us what kind of goal/card
+const SAP_INCIDENT_TYPE_MAP: Record<string, string> = {
+  twoPoints:   'try',
+  try:         'try',
+  onePoint:    'conversion',
+  threePoints: 'penalty',
+  dropGoal:    'drop_goal',
+  yellowCard:  'yellow_card',
+  yellowcard:  'yellow_card',
+  redCard:     'red_card',
+  redcard:     'red_card',
+}
+
+export async function fetchSapIncidents(sapMatchId: number): Promise<Incident[]> {
+  const data = await sapFetch<any>(`/api/match/${sapMatchId}/incidents`, DETAIL_TIMEOUT)
+  const raw: any[] = data?.incidents ?? (Array.isArray(data) ? data : [])
+  if (raw.length === 0) return []
+
+  const results: Incident[] = []
+  for (const e of raw) {
+    // skip period markers and substitutions — only scoring + cards
+    const cls = e.incidentClass ?? e.incidentType ?? ''
+    const type = SAP_INCIDENT_TYPE_MAP[cls]
+    if (!type) continue
+
+    results.push({
+      id: String(e.id ?? Math.random()),
+      type,
+      minute: e.time ?? null,
+      team: e.isHome ? 'home' : 'away',
+      playerName: e.player?.shortName ?? e.player?.name ?? null,
+      homeScore: e.homeScore ?? null,
+      awayScore: e.awayScore ?? null,
+    })
+  }
+  return results
 }

@@ -33,6 +33,11 @@ export async function getHlTeamId(asTeamId: number): Promise<number | null> {
   return map.get(asTeamId)?.hlTeamId ?? null
 }
 
+export async function getSapTeamId(asTeamId: number): Promise<string | null> {
+  const map = await loadCache()
+  return map.get(asTeamId)?.sapTeamId ?? null
+}
+
 export async function upsertTeam(t: TeamMapping): Promise<void> {
   await db().collection('teams').doc(String(t.asTeamId)).set(t, { merge: true })
   cache = null

@@ -14,7 +14,7 @@
 
 import fetch from 'node-fetch'
 import { normaliseTeamName, teamNamesMatch } from './matchResolver'
-import { getHlTeamId, backfillHlTeamId } from '../config/teams'
+import { getHlTeamId, backfillHlTeamId, getSapTeamId } from '../config/teams'
 
 const BASE_HL = 'https://rugby.highlightly.net'
 const KEY_HL = process.env.HIGHLIGHTLY_KEY ?? ''
@@ -162,6 +162,85 @@ export async function fetchHlMatchDetail(hlMatchId: number): Promise<any | null>
   } catch {
     return null
   }
+}
+
+// ── SAP match ID resolution ──────────────────────────────────────────────────
+
+const BASE_SAP = 'https://v2.rugby.sportsapipro.com'
+const KEY_SAP = process.env.SAP_KEY ?? ''
+const SAP_SCHEDULE_TTL = 30 * 60 * 1000
+
+interface SapScheduleEntry {
+  ts: number
+  byTeamPair: Map<string, number>  // `homeSapId__awaySapId` → sapMatchId
+  rawItems: any[]
+}
+const sapScheduleCache = new Map<string, SapScheduleEntry>()
+
+async function loadSapScheduleForDate(date: string): Promise<SapScheduleEntry> {
+  const cached = sapScheduleCache.get(date)
+  if (cached && Date.now() - cached.ts < SAP_SCHEDULE_TTL) return cached
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 5000)
+  try {
+    const res = await fetch(`${BASE_SAP}/api/schedule/${date}`, {
+      headers: { 'x-api-key': KEY_SAP },
+      signal: controller.signal as any,
+    })
+    clearTimeout(timer)
+    if (!res.ok) throw new Error(`SAP schedule ${res.status}`)
+    const json = await res.json() as any
+    const items: any[] = json.data?.events ?? []
+    const entry: SapScheduleEntry = { ts: Date.now(), byTeamPair: new Map(), rawItems: items }
+    for (const m of items) {
+      const hId = String(m.homeTeam?.id ?? '')
+      const aId = String(m.awayTeam?.id ?? '')
+      if (hId && aId) entry.byTeamPair.set(`${hId}__${aId}`, m.id)
+    }
+    sapScheduleCache.set(date, entry)
+    return entry
+  } catch {
+    clearTimeout(timer)
+    const empty: SapScheduleEntry = { ts: Date.now(), byTeamPair: new Map(), rawItems: [] }
+    sapScheduleCache.set(date, empty)
+    return empty
+  }
+}
+
+/**
+ * Given an AS match (home/away asTeamId, date), resolves the corresponding SAP match ID.
+ * Pass 1: sapTeamId from Firestore (exact, fast)
+ * Pass 2: fuzzy team name match against the SAP schedule
+ */
+export async function resolveSapMatchId(
+  date: string,
+  homeTeamName: string,
+  awayTeamName: string,
+  asHomeTeamId: number | null,
+  asAwayTeamId: number | null,
+): Promise<number | null> {
+  const schedule = await loadSapScheduleForDate(date)
+  if (schedule.rawItems.length === 0) return null
+
+  // Pass 1: Firestore SAP team IDs
+  if (asHomeTeamId && asAwayTeamId) {
+    const [sapHomeId, sapAwayId] = await Promise.all([
+      getSapTeamId(asHomeTeamId),
+      getSapTeamId(asAwayTeamId),
+    ])
+    if (sapHomeId && sapAwayId) {
+      const match = schedule.byTeamPair.get(`${sapHomeId}__${sapAwayId}`)
+      if (match != null) return match
+    }
+  }
+
+  // Pass 2: fuzzy name match
+  const fuzzy = schedule.rawItems.find(m =>
+    teamNamesMatch(m.homeTeam?.name ?? '', homeTeamName) &&
+    teamNamesMatch(m.awayTeam?.name ?? '', awayTeamName)
+  )
+  return fuzzy?.id ?? null
 }
 
 export async function fetchHlHighlightsForMatch(hlMatchId: number): Promise<any[]> {

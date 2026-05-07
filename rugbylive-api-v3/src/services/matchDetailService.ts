@@ -1,10 +1,12 @@
 import { getActiveLeagues } from '../config/leagues'
 import * as AS from '../providers/apiSports'
+import * as SAP from '../providers/sportsApiPro'
 import { getMatchById } from './matchesService'
 import {
   resolveHlMatchId,
   fetchHlMatchDetail,
   fetchHlHighlightsForMatch,
+  resolveSapMatchId,
 } from './crossRefService'
 import type { Match, Incident, Highlight } from '../types/internal'
 import type {
@@ -106,40 +108,42 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
     h2h: null,
   }
 
-  // 2. Resolve Highlightly match ID for cross-provider enrichment
+  // 2. Resolve Highlightly + SAP match IDs in parallel
   const leagues = await getActiveLeagues()
   const date = match.kickoff.slice(0, 10)
 
-  // Find the league by matching the competition ID
   const league = leagues.find(l => l.id === match.competition.id)
   const hlLeagueId = league?.highlightlyId ?? null
 
-  // For AS matches: resolve corresponding HL match — ID-based first, then name fallback
+  const asHomeId = match.homeTeam.id.startsWith('as_team_')
+    ? Number(match.homeTeam.id.replace('as_team_', '')) : null
+  const asAwayId = match.awayTeam.id.startsWith('as_team_')
+    ? Number(match.awayTeam.id.replace('as_team_', '')) : null
+
   let hlMatchId: number | null = null
-  if (matchId.startsWith('as_') && hlLeagueId) {
-    const asHomeId = match.homeTeam.id.startsWith('as_team_')
-      ? Number(match.homeTeam.id.replace('as_team_', '')) : null
-    const asAwayId = match.awayTeam.id.startsWith('as_team_')
-      ? Number(match.awayTeam.id.replace('as_team_', '')) : null
-    hlMatchId = await resolveHlMatchId(
-      match.homeTeam.name,
-      match.awayTeam.name,
-      date,
-      hlLeagueId,
-      asHomeId,
-      asAwayId,
-    )
+  let sapMatchId: number | null = null
+
+  if (matchId.startsWith('as_')) {
+    ;[hlMatchId, sapMatchId] = await Promise.all([
+      hlLeagueId
+        ? resolveHlMatchId(match.homeTeam.name, match.awayTeam.name, date, hlLeagueId, asHomeId, asAwayId)
+        : Promise.resolve(null),
+      resolveSapMatchId(date, match.homeTeam.name, match.awayTeam.name, asHomeId, asAwayId),
+    ])
   } else if (matchId.startsWith('hl_')) {
     hlMatchId = Number(matchId.replace('hl_', ''))
   }
 
-  // 3. Fetch all enrichment data in parallel — nothing blocks the response
-  const [hlDetail, hlHighlightItems, h2hMatches] = await Promise.all([
+  // 3. Fetch all enrichment data in parallel — SAP calls have a hard 4s cap
+  const [hlDetail, hlHighlightItems, h2hMatches, sapLineups, sapIncidents] = await Promise.all([
     hlMatchId ? fetchHlMatchDetail(hlMatchId) : Promise.resolve(null),
     hlMatchId ? fetchHlHighlightsForMatch(hlMatchId) : Promise.resolve([]),
     matchId.startsWith('as_')
       ? AS.fetchH2H(match.homeTeam.id, match.awayTeam.id, match.competition.id).catch(() => [] as Match[])
       : Promise.resolve([] as Match[]),
+    // SAP fallbacks — 4s timeout already enforced inside these functions
+    sapMatchId ? SAP.fetchSapLineups(sapMatchId).catch(() => null) : Promise.resolve(null),
+    sapMatchId ? SAP.fetchSapIncidents(sapMatchId).catch(() => []) : Promise.resolve([] as Incident[]),
   ])
 
   // 4. Extract structured fields from HL detail (all gracefully handle null/missing)
@@ -182,6 +186,16 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
 
     incidents = extractIncidents(hlDetail)
     if (incidents.length > 0) sources.incidents = 'highlightly'
+  }
+
+  // SAP fallbacks — only fill gaps HL couldn't provide
+  if (!lineups && sapLineups) {
+    lineups = sapLineups
+    sources.lineups = 'sap'
+  }
+  if (incidents.length === 0 && sapIncidents.length > 0) {
+    incidents = sapIncidents
+    sources.incidents = 'sap'
   }
 
   const highlights = extractHighlights(hlHighlightItems)
