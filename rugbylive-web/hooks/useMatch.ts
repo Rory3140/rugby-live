@@ -1,8 +1,8 @@
 'use client'
 import { useQuery } from '@tanstack/react-query'
-import { fetchMatch, fetchH2HSummary } from '@/lib/api'
+import { fetchMatch, fetchMatchDetail } from '@/lib/api'
 import { isLive } from '@/lib/utils'
-import type { H2HSummary } from '@/types'
+import type { MatchDetail } from '@/types'
 
 export function useMatch(id: string) {
   return useQuery({
@@ -18,10 +18,16 @@ export function useMatch(id: string) {
   })
 }
 
-export function useH2H(id: string) {
-  return useQuery<H2HSummary>({
-    queryKey: ['h2h', id],
-    queryFn: () => fetchH2HSummary(id),
-    staleTime: 300_000,
+export function useMatchDetail(id: string) {
+  return useQuery<MatchDetail>({
+    queryKey: ['matchDetail', id],
+    queryFn: () => fetchMatchDetail(id),
+    staleTime: 10_000,
+    refetchInterval: (query) => {
+      const match = query.state.data?.match
+      if (!match) return false
+      return isLive(match.status) ? 15_000 : false
+    },
+    refetchIntervalInBackground: false,
   })
 }

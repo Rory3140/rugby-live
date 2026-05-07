@@ -1,7 +1,7 @@
-import type { Match, Standing, League, Season, H2HSummary } from '@/types'
+import type { Match, Standing, League, Season, MatchDetail } from '@/types'
 import { makeShortName } from './utils'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4001'
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4002'
 
 async function apiFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`)
@@ -23,8 +23,7 @@ function normaliseMatch(m: any): Match {
       ...m.competition,
       shortName: makeShortName(m.competition.name),
     },
-    // v2 uses 'round'; ensure overtime period exists for backward compat
-    round: m.round ?? m.week ?? null,
+    round: m.round ?? null,
     periods: {
       first:    m.periods?.first    ?? { home: null, away: null },
       second:   m.periods?.second   ?? { home: null, away: null },
@@ -43,8 +42,16 @@ export async function fetchMatch(id: string): Promise<Match> {
   return normaliseMatch(data)
 }
 
-export async function fetchH2HSummary(id: string): Promise<H2HSummary> {
-  return apiFetch<H2HSummary>(`/matches/${id}/h2h`)
+export async function fetchMatchDetail(id: string): Promise<MatchDetail> {
+  const data = await apiFetch<any>(`/matches/${id}/detail`)
+  return {
+    ...data,
+    match: normaliseMatch(data.match),
+    h2h: data.h2h ? {
+      ...data.h2h,
+      recentMatches: (data.h2h.recentMatches ?? []).map(normaliseMatch),
+    } : null,
+  }
 }
 
 export async function fetchLeagues(): Promise<League[]> {
@@ -62,14 +69,10 @@ export async function fetchLeagueSeasons(leagueId: string): Promise<Season[]> {
 
 export async function fetchStandings(leagueId: string, seasonId?: string): Promise<Standing[]> {
   if (!seasonId) return []
-  // v2 returns Standings[] (array of tables). We flatten to first table's rows.
+  // v3 returns a flat Standing[] directly
   const data = await apiFetch<any[]>(`/leagues/${leagueId}/standings?season=${seasonId}`)
-  if (!data || data.length === 0) return []
-
-  // data is Standings[] — each has { type, rows: StandingRow[] }
-  const firstTable = data[0]
-  const rows = firstTable?.rows ?? firstTable ?? []
-  return rows.map((s: any) => ({
+  if (!Array.isArray(data) || data.length === 0) return []
+  return data.map((s: any) => ({
     position:      s.position,
     team:          addTeamShortName(s.team),
     played:        s.played,
@@ -81,7 +84,7 @@ export async function fetchStandings(leagueId: string, seasonId?: string): Promi
     pointsDiff:    s.pointsDiff,
     points:        s.points,
     form:          s.form ?? null,
-    description:   s.promotion ?? s.description ?? null,
+    description:   s.description ?? null,
   }))
 }
 

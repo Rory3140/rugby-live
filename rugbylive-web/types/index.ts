@@ -23,7 +23,7 @@ export interface Match {
   awayScore: number | null
   status: MatchStatus
   kickoff: string
-  round: string | null    // round number or name e.g. "Round 18", "Semi-final" (was 'week' in v1)
+  round: string | null
   periods: {
     first:    { home: number | null; away: number | null }
     second:   { home: number | null; away: number | null }
@@ -52,16 +52,100 @@ export interface League {
   shortName: string
   logoUrl: string | null
   country: string | null
-  category: string | null   // 'International' | 'Club' | 'Sevens' | null
-  active?: boolean          // present on admin endpoints
+  category: string | null
+  active?: boolean
 }
 
 export interface Season {
-  id: string    // SAP internal season ID (e.g. "82834") — use for standings/games API calls
-  name: string  // e.g. "URC 2024/2025"
-  year: string  // e.g. "2024/2025"
+  id: string    // year string e.g. "2025" — used as ?season= param
+  name: string
+  year: string
 }
 
+// ── v3 match detail types ─────────────────────────────────────────────────────
+
+export interface Venue {
+  name: string | null
+  city: string | null
+  country: string | null
+  capacity: number | null
+}
+
+export interface Referee {
+  name: string | null
+  nationality: string | null
+}
+
+export interface Weather {
+  status: string | null
+  temperature: string | null
+}
+
+export interface LineupPlayer {
+  name: string
+  shortName: string | null
+  number: number | null
+  position: string | null
+  country: string | null
+}
+
+export interface LineupSide {
+  starters: LineupPlayer[]
+  substitutes: LineupPlayer[]
+}
+
+export interface Lineups {
+  home: LineupSide
+  away: LineupSide
+}
+
+export interface Prediction {
+  type: string
+  homeProb: string | null   // e.g. "62.4%"
+  drawProb: string | null
+  awayProb: string | null
+  description: string | null
+}
+
+export interface Incident {
+  id: string
+  type: string              // 'try' | 'conversion' | 'penalty' | 'drop_goal' | 'yellow_card' | 'red_card' | ...
+  minute: number | null
+  team: 'home' | 'away'
+  playerName: string | null
+  homeScore: number | null
+  awayScore: number | null
+}
+
+export interface Highlight {
+  id: string
+  title: string
+  url: string
+  thumbnailUrl: string | null
+  publishedAt: string | null
+  source: string
+}
+
+export interface H2HDetail {
+  homeWins: number
+  awayWins: number
+  draws: number
+  recentMatches: Match[]
+}
+
+export interface MatchDetail {
+  match: Match
+  venue: Venue | null
+  referee: Referee | null
+  weather: Weather | null
+  lineups: Lineups | null
+  predictions: Prediction | null
+  incidents: Incident[]
+  highlights: Highlight[]
+  h2h: H2HDetail | null
+}
+
+// kept for any existing usages
 export interface H2HSummary {
   homeWins: number
   awayWins: number

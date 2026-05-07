@@ -189,9 +189,14 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
   let h2h: MatchDetail['h2h'] = null
   if (h2hMatches.length > 0) {
     const homeNorm = match.homeTeam.name
+    const isCurrentMatch = (m: Match) =>
+      m.id === matchId ||
+      (m.kickoff === match.kickoff &&
+       m.homeTeam.name === match.homeTeam.name &&
+       m.awayTeam.name === match.awayTeam.name)
     let homeWins = 0, awayWins = 0, draws = 0
     for (const m of h2hMatches) {
-      if (m.id === matchId) continue  // exclude current match from tally
+      if (isCurrentMatch(m)) continue
       if (m.homeScore === null || m.awayScore === null) continue
       const isHomeTeamHome = m.homeTeam.name === homeNorm
       const homeScore = isHomeTeamHome ? m.homeScore : m.awayScore
@@ -205,7 +210,7 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
       awayWins,
       draws,
       recentMatches: h2hMatches
-        .filter(m => m.homeScore !== null && m.id !== matchId)
+        .filter(m => m.homeScore !== null && !isCurrentMatch(m))
         .sort((a, b) => b.kickoff.localeCompare(a.kickoff))
         .slice(0, 10),
     }

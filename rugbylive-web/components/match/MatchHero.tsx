@@ -2,14 +2,16 @@
 import TeamCrest from '@/components/ui/TeamCrest'
 import CompLogo from '@/components/ui/CompLogo'
 import LiveBadge from '@/components/ui/LiveBadge'
-import type { Match } from '@/types'
+import type { Match, Venue, Referee } from '@/types'
 import { isLive, isTerminal, formatKickoff } from '@/lib/utils'
 
 interface Props {
   match: Match
+  venue?: Venue | null
+  referee?: Referee | null
 }
 
-export default function MatchHero({ match }: Props) {
+export default function MatchHero({ match, venue, referee }: Props) {
   const { homeTeam, awayTeam, homeScore, awayScore, status, kickoff, competition, round } = match
   const live = isLive(status)
   const finished = isTerminal(status)
@@ -103,21 +105,34 @@ export default function MatchHero({ match }: Props) {
         </div>
       </div>
 
-      {/* Kickoff strip */}
+      {/* Kickoff / venue / referee strip */}
       <div style={{
         marginTop: 20,
         paddingTop: 14,
         borderTop: '1px solid var(--border2)',
         display: 'flex',
+        flexWrap: 'wrap',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 8,
+        gap: 6,
         fontSize: 11,
         color: 'var(--text3)',
       }}>
         <span className="rl-mono">{formatKickoff(kickoff)}</span>
         <span>·</span>
         <span>{new Date(kickoff).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+        {venue?.name && (
+          <>
+            <span>·</span>
+            <span>{venue.name}{venue.city ? `, ${venue.city}` : ''}</span>
+          </>
+        )}
+        {referee?.name && (
+          <>
+            <span>·</span>
+            <span>Ref: {referee.name}</span>
+          </>
+        )}
       </div>
     </div>
   )
