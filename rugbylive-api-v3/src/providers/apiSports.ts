@@ -130,11 +130,11 @@ export async function fetchSeasons(_apiSportsId: number): Promise<Season[]> {
   try {
     const data = await apiFetch<any[]>(`/seasons`)
     if (!Array.isArray(data)) return []
-    return data.map((s: any) => ({
-      id: String(s),
-      name: String(s),
-      year: String(s),
-    })).reverse() // most recent first
+    const currentYear = new Date().getFullYear()
+    return data
+      .filter((s: any) => Number(s) <= currentYear)
+      .map((s: any) => ({ id: String(s), name: String(s), year: String(s) }))
+      .reverse() // most recent first
   } catch {
     return []
   }
