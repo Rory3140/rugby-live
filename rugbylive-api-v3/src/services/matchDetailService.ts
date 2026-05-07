@@ -85,9 +85,9 @@ function extractHighlights(items: any[]): Highlight[] {
     id: String(h.id ?? h.url ?? Math.random()),
     title: h.title ?? '',
     url: h.url ?? h.embedUrl ?? h.videoUrl ?? '',
-    thumbnailUrl: h.thumbnail ?? h.image ?? null,
+    thumbnailUrl: h.imgUrl ?? h.thumbnail ?? h.image ?? null,
     publishedAt: h.publishedAt ?? h.createdAt ?? null,
-    source: 'Highlightly',
+    source: h.channel ?? 'Highlightly',
   }))
 }
 

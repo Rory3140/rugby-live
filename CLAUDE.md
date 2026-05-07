@@ -215,9 +215,13 @@ Full reference: `SPORTSAPIPRO.md`
 
 **Not available:** player profiles, top scorers, search by name, H2H match list (counts only)
 
-**incidentClass values:** `try`, `twoPoints` (union conversion), `onePoint` (league conversion), `threePoints` (penalty), `dropGoal`, `yellow`, `red`
+**incidentClass values:** `try`, `twoPoints` (union conversion = 2pts), `onePoint` (league conversion = 1pt), `threePoints` (penalty), `dropGoal`, `yellow`, `red`
 
-**Reliability note:** SAP Pro times out and 503s frequently. All SAP Pro calls must have an 8s timeout and treat timeout/503 as empty (not error). Never block a page render waiting for SAP Pro — load it async and show section only if data arrives.
+**Important:** `twoPoints` is a conversion (2pts), NOT a try (5pts). The internal `SAP_INCIDENT_TYPE_MAP` must map `twoPoints → 'conversion'`.
+
+**Reliability note:** SAP Pro times out and 503s frequently. Standard calls use an 8s timeout; match detail calls (`/api/match/:id/lineups`, `/api/match/:id/incidents`) use a strict **4s timeout** (`DETAIL_TIMEOUT`) so they never slow the `/detail` endpoint. All SAP calls treat timeout/503 as empty (not error). SAP enrichment runs in parallel with Highlightly — never blocks on SAP alone.
+
+**Highlight thumbnail field:** Highlightly returns `imgUrl` (YouTube `hqdefault.jpg` URL). The `thumbnailUrl` field in `extractHighlights()` must use `h.imgUrl` as primary. Source channel is `h.channel` (e.g. "Highlightly").
 
 ### Scheduling
 | Job | Frequency |
@@ -340,11 +344,10 @@ export const dmMono = DM_Mono({ subsets: ['latin'], variable: '--font-mono' })
 
 ```
 Max content width:    1120px centred with auto margins
-Desktop layout:       220px sidebar + flex-1 content
+Desktop layout:       Full-width content centred at 1120px (no sidebar)
 Mobile layout:        Full width + fixed 64px bottom nav bar
 Navbar height:        56px, sticky, blur backdrop
 Match card grid:      3 columns (lg: ≥1024) → 2 (md: ≥768) → 1 (sm)
-Sidebar:              Hidden below md breakpoint
 Bottom nav:           Visible only below md breakpoint, fixed bottom
 Card padding:         14px
 Card border-radius:   10px
@@ -435,28 +438,8 @@ Following:  "Following"  — border: rgba(232,255,71,0.35), color: var(--accent)
 - Active tab: icon + label `color: var(--accent)`, label weight 600
 - Alerts tab: red count badge (top-right of icon) when > 0
 
-### Desktop Sidebar (220px, `border-right: 1px solid var(--border)`)
-```
-LIVE NOW
-├── Six Nations          ●
-└── URC                  ●
-
-INTERNATIONAL
-├── Six Nations                 (active = accent rail + accent2 bg)
-├── Rugby Championship
-├── World Cup
-└── World Sevens Series
-
-CLUB
-├── United Rugby Championship
-├── Gallagher Premiership
-├── Top 14
-├── Super Rugby Pacific
-└── Champions Cup
-```
-- Section label: rl-label style, 8px L padding
-- Row: 8px padding, 20px comp logo + 13px name + optional live dot
-- Active row: `var(--accent2)` bg, 2px accent rail pinned to outer edge
+### Desktop Sidebar
+**Removed** — sidebar was removed in the 2026-05-07 session. Content is now full-width centred at 1120px with no sidebar on any breakpoint. Navigation between leagues happens via the `/leagues` page and the bottom nav / top navbar.
 
 ---
 
@@ -501,6 +484,8 @@ CLUB
   - PD coloured: `> 0` green, `< 0` muted, `0` text2
   - PTS column: DM Mono 14/700, `color: var(--accent)`
   - Leader row: 2px accent rail on the left edge, position number also accent
+  - **Season auto-fallback**: if all rows have `played === 0` (current season not yet started), the page silently fetches the previous season and displays that instead. The season selector label updates accordingly.
+- **Fixtures/Results cards** show date alongside round — same card style as H2H, `showDate` prop on `MatchCard`
 
 ### `/match/[id]` — Match Detail
 - Breadcrumb trail: Matches · Comp · Teams
@@ -509,13 +494,13 @@ CLUB
   - Two-column team block (crest 54px + name + HOME/AWAY label)
   - Giant score row: Bebas 56, **red `var(--live)` while live, `var(--text)` when finished**
   - Half-time scores strip (periods.first / periods.second) — only render if API returns them (not null)
-  - Kickoff time strip below (1px top border, text3) — no venue (API never returns it)
-- Tab bar: **Score / H2H** only — accent underline on active
-  - ~~Summary timeline~~ — REMOVED: `/games/events` does not exist in this API
-  - ~~Stats bars~~ — REMOVED: `/games/statistics` does not exist in this API
-  - ~~Lineups~~ — REMOVED: `/games/lineups` does not exist in this API
-- **Score tab**: hero score + half-time period scores (if available)
-- **H2H tab**: last N meetings between the two teams — same game card format, chronological descending
+  - Info strip below score (1px top border, text3): kickoff time · venue (if Highlightly provides it) · referee · weather temperature + status (e.g. "12°C · Partly Cloudy")
+  - Weather: Highlightly `forecast`/`weatherForecast` field; temperature decimal stripped (e.g. `"12.5°C"` → `"12°C"`)
+- Tab bar: **Score / Timeline / Lineups / H2H** — accent underline on active (tabs only render if data available)
+  - **Score tab**: hero score + half-time period scores (if available) + win prediction (if Highlightly provides it)
+  - **Timeline tab**: match incidents (tries, conversions, penalties, drop goals, cards) — most recent at top. Source: Highlightly primary, SAP Pro fallback
+  - **Lineups tab**: starting XV + bench for both teams. Source: Highlightly primary, SAP Pro fallback
+  - **H2H tab**: last N meetings between the two teams — same game card format, chronological descending
 
 ### `/explore` — Search
 - Search bar (teams, competitions)
@@ -632,6 +617,12 @@ CLUB
   /package.json
   /tsconfig.json
   /.dockerignore
+
+/rugbylive-api-v3/scripts/
+  discoverSapTeamIds.mjs         ← One-off script: fetches SAP standings for all active leagues
+                                    with a sapId, name-matches against Firestore teams, writes
+                                    sapTeamId back. Result: 119 auto-matched + 9 manually patched
+                                    = 128 teams total in Firestore with sapTeamId populated.
 ```
 
 ---
@@ -944,32 +935,34 @@ When creating commits: write a short imperative subject line (`feat: add MatchCa
 - Match IDs are provider-prefixed: `as_XXXX`, `hl_XXXX`, `sap_XXXX`
 - Competition ID on match objects = Firestore doc ID (canonical across providers)
 
-**v3 Firestore league config (22 active leagues, 2026-05-06):**
+**v3 Firestore league config (20 active leagues, 2026-05-07):**
 ```
-Doc ID = API-Sports ID   Name                         HL ID   SAP ID
-10                        Premiership Rugby Cup         9294    null
-12                        Greene King IPA Championship 10996   1323
-13                        Premiership Rugby            11847   424
-16                        Top 14                       14400   420
-17                        Pro D2                       15251   1147
-27                        Top League                   23761   null
-44                        Major League Rugby           38228   14662
-51                        Six Nations                  44185   423
-52                        Challenge Cup                45036   752
-54                        European Rugby Champions Cup 46738   401
-56                        Six Nations U20              48440   null
-58                        Rugby Europe Championship    50142   null
-69                        World Cup                    59503   null
-71                        Super Rugby                  61205   422
-76                        United Rugby Championship    65460   419
-80                        Bunnings NPC                 68864   797
-84                        Friendly International       72268   876
-85                        Rugby Championship           73119   789
-88                        Lions Tour                   75672   null
-90                        Pacific Nations Cup          77374   13667
-92                        Americas Pacific Challenge   79076   null
-96                        Club Friendly                82480   null
+Doc ID = API-Sports ID   Name                         HL ID   SAP ID    Active
+10                        Premiership Rugby Cup         9294    11543     ✅
+12                        Greene King IPA Championship 10996   1323      ✅
+13                        Premiership Rugby            11847   424       ✅
+16                        Top 14                       14400   420       ✅
+17                        Pro D2                       15251   1147      ✅
+27                        Top League                   23761   null      ✅
+44                        Major League Rugby           38228   14662     ✅
+51                        Six Nations                  44185   423       ✅
+52                        Challenge Cup                45036   752       ✅
+54                        European Rugby Champions Cup 46738   401       ✅
+56                        Six Nations U20              48440   1628      ✅
+58                        Rugby Europe Championship    50142   2321      ✅
+69                        World Cup                    59503   421       ✅
+71                        Super Rugby                  61205   422       ✅
+76                        United Rugby Championship    65460   419       ✅
+80                        Bunnings NPC                 68864   797       ✅
+84                        Friendly International       72268   876       ✅
+85                        Rugby Championship           73119   789       ✅
+88                        Lions Tour                   75672   27512     ✅
+90                        Pacific Nations Cup          77374   13667     ❌ (disabled 2026-05-07)
+92                        Americas Pacific Challenge   79076   null      ❌ (disabled 2026-05-07)
+96                        Club Friendly                82480   null      ✅
 ```
+
+**Firestore teams collection (2026-05-07):** 128 teams have `sapTeamId` populated. SAP team IDs discovered via `discoverSapTeamIds.mjs` script (119 auto-matched from SAP standings, 9 manually patched for name-variant teams e.g. "Harlequin FC" → "Harlequins", "Connacht Rugby" → "Connacht Eagles").
 
 ### Backend v2 status (rugbylive-api-v2) — superseded by v3
 - **Built and tested 2026-04-30** — all endpoints verified against live SportsAPI Pro
@@ -1034,9 +1027,9 @@ Doc ID = API-Sports ID   Name                         HL ID   SAP ID
 - Framer Motion stagger animations on competition groups (80ms per group)
 - Mobile-first: top navbar shows logo only, bottom nav handles routing
 - `useLeagueSeasons(id)` hook fetches seasons dynamically from `/leagues/:id/seasons`; `seasons[0]` is the most recent season (SAP returns newest first). Used in league detail page for standings + fixtures/results.
-- `.env.local` exists at `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4001` (v2 backend)
+- `.env.local` exists at `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4002` ✓ updated to v3
 - `lib/firebase.ts` exists as a stub — Firebase client SDK not yet installed (Phase 2)
-- Start: `cd rugbylive-web && npm run dev` (port 3000), requires backend on port 4001
+- Start: `cd rugbylive-web && npm run dev` (port 3000), requires backend v3 on port 4002
 
 **Confirmed fixes (2026-04-24 session):**
 - `formatDate()` uses local date parts (`getFullYear/Month/Date`) not `toISOString()` — fixes TODAY marker showing wrong day in non-UTC timezones (e.g. BST, EDT)
@@ -1072,6 +1065,25 @@ Doc ID = API-Sports ID   Name                         HL ID   SAP ID
 - **`windowOffsetForDate(date)`** helper extracted in matches page — computes Monday-aligned window offset for any given date. Used for both URL restore and calendar pick.
 - **`prevDateRef` bug fix**: was `useRef(todayStr)` (stored the function), fixed to `useRef(todayStr())` (stores the string).
 - **`CompGroupHeader` round label**: only prepends "Round " when the value is a plain number. Named rounds (Semi-finals, Final, Quarter-finals, etc.) render as-is.
+
+**Confirmed changes (2026-05-07 session — SAP integration, UI polish):**
+- **Desktop sidebar removed** — `app/layout.tsx` now renders a single `<main>` centred at 1120px. No sidebar on any breakpoint. `Sidebar.tsx` component exists but is no longer rendered.
+- **Live status labels** — `LiveBadge.tsx` maps raw API status to display labels: `1H → "1ST"`, `HT → "HT"`, `2H → "2ND"`. Raw status values are preserved internally; only the badge display changes.
+- **Weather in match hero** — `MatchHero.tsx` accepts a `weather` prop (`{ status, temperature } | null`) and renders in the info strip. Temperature decimal stripped in `matchDetailService.ts` (`"12.5°C" → "12°C"`). Source: Highlightly `forecast`/`weatherForecast` field.
+- **League standings season auto-fallback** — `leagues/[id]/page.tsx`: if all standings rows have `played === 0`, fetches `seasons[1]` instead and uses that. Silently upgrades to the most recent season with actual data.
+- **Date on Fixtures/Results cards** — `showDate` prop added to `MatchCard`. League detail Fixtures and Results tabs pass `showDate` so the card shows date alongside round, matching H2H card style.
+- **SAP Pro fully integrated as fallback for lineups + incidents**:
+  - `sportsApiPro.ts`: added `fetchSapLineups()` and `fetchSapIncidents()` with strict 4s `DETAIL_TIMEOUT`
+  - `crossRefService.ts`: added `resolveSapMatchId()` — loads SAP schedule for the date, caches 30 min, resolves via Firestore `sapTeamId` (Pass 1) then fuzzy name match (Pass 2)
+  - `matchDetailService.ts`: resolves `hlMatchId` and `sapMatchId` in parallel; all 5 enrichment fetches run in one `Promise.all`; SAP fills gaps only when HL returns null/empty
+  - `teams.ts`: added `getSapTeamId()` function
+- **128 teams have `sapTeamId` in Firestore** — discovered via `scripts/discoverSapTeamIds.mjs` (119 auto-matched + 9 manually patched)
+- **SAP ID updates in Firestore leagues**: Premiership Rugby Cup=11543, Six Nations U20=1628, Rugby Europe Championship=2321, World Cup=421, Lions Tour=27512
+- **Pacific Nations Cup (id=90) and Americas Pacific Challenge (id=92) disabled** in Firestore (`active: false`)
+- **Timeline reversed** — `MatchTimeline.tsx` sorts incidents descending by minute (most recent at top)
+- **Highlight thumbnail fixed** — `extractHighlights()` uses `h.imgUrl` as primary thumbnail source (Highlightly field). `h.channel` used as source label.
+- **SAP `twoPoints` incident fixed** — `SAP_INCIDENT_TYPE_MAP` correctly maps `twoPoints → 'conversion'` (2pt union conversion, not a try). Also added `yellow`, `red` variants to map alongside `yellowCard`, `redCard`.
+- **Frontend migrated to v3** — `.env.local` updated to `http://localhost:4002`
 
 **Confirmed changes (2026-05-06 session — v3 multi-provider backend):**
 - **`rugbylive-api-v3` built** — port 4002, multi-provider: API-Sports + Highlightly + SportsAPI Pro
@@ -1117,8 +1129,8 @@ To get true real-time score updates (pushed from RTDB instead of polled from API
 | Docker build (API) | `cd rugbylive-api-v3 && docker build -t rugbylive-api .` |
 
 ### Local env setup
-- Frontend: `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4001` — **needs updating to port 4002 when migrating to v3**
-- Backend v3: `rugbylive-api-v3/.env` with all three API keys + Firebase config ✓ exists (gitignored)
+- Frontend: `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4002` ✓ updated to v3
+- Backend v3: `rugbylive-api-v3/.env` with `API_SPORTS_KEY`, `HIGHLIGHTLY_KEY`, `SAP_KEY` + Firebase config ✓ exists (gitignored)
 - Backend v2 (old): `rugbylive-api-v2/.env` with `SPORTS_API_PRO_KEY` ✓ exists (gitignored)
 
 ### Test strategy (from HANDOFF.md)

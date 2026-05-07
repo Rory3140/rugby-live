@@ -51,7 +51,7 @@ function IncidentPill({ incident }: { incident: Incident }) {
 }
 
 export default function MatchTimeline({ incidents, homeTeam, awayTeam }: Props) {
-  const sorted = [...incidents].sort((a, b) => (a.minute ?? 0) - (b.minute ?? 0))
+  const sorted = [...incidents].sort((a, b) => (b.minute ?? 0) - (a.minute ?? 0))
 
   return (
     <div style={{

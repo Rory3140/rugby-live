@@ -163,15 +163,18 @@ export async function fetchSapLineups(sapMatchId: number): Promise<Lineups | nul
 // SAP incident incidentType is "goal" | "card" | "period" | "substitution"
 // incidentClass tells us what kind of goal/card
 const SAP_INCIDENT_TYPE_MAP: Record<string, string> = {
-  twoPoints:   'try',
   try:         'try',
-  onePoint:    'conversion',
+  twoPoints:   'conversion',   // union conversion = 2pts
+  onePoint:    'conversion',   // league conversion = 1pt
   threePoints: 'penalty',
   dropGoal:    'drop_goal',
+  dropgoal:    'drop_goal',
   yellowCard:  'yellow_card',
   yellowcard:  'yellow_card',
+  yellow:      'yellow_card',
   redCard:     'red_card',
   redcard:     'red_card',
+  red:         'red_card',
 }
 
 export async function fetchSapIncidents(sapMatchId: number): Promise<Incident[]> {
