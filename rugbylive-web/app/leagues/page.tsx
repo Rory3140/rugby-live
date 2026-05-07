@@ -39,13 +39,14 @@ export default function LeaguesPage() {
   )
 
   const grouped = useMemo(() => {
-    if (search.trim()) return new Map([['Results', filtered]])
+    if (search.trim()) return new Map([['Results', [...filtered].sort((a, b) => a.name.localeCompare(b.name))]])
     const map = new Map<string, League[]>()
     for (const l of filtered) {
       const cat = categorise(l)
       if (!map.has(cat)) map.set(cat, [])
       map.get(cat)!.push(l)
     }
+    for (const [, arr] of map) arr.sort((a, b) => a.name.localeCompare(b.name))
     return map
   }, [filtered, search])
 
