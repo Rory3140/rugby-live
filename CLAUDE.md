@@ -57,36 +57,106 @@ A Swift iOS app will come later — the backend must be built as a clean statele
 
 ### Data Providers
 
-**Current provider — API-Sports Rugby API (active)**
-| | |
-|---|---|
-| Provider | API-Sports Rugby API (api-sports.io) |
-| Plan | Pro ($15/mo — 7,500 requests/day) |
-| Key Storage | Cloud Run Secret Manager (never in code or frontend) |
-| Rule | ALL API-Sports calls go through backend only. The frontend NEVER calls API-Sports directly. |
+v3 uses three APIs in combination. No single provider covers everything — the backend routes each data need to its best source and falls back down the chain if that source fails or returns empty.
 
-**API-Sports field support — honesty rule:**
-API-Sports rugby coverage is uneven. Only render fields the API actually returns. Any stat/event/lineup the API doesn't expose must be hidden (not shown as "—" or "0").
+**Rule: ALL provider calls go through the backend only. The frontend never calls any data provider directly.**
 
-**Confirmed working endpoints (verified April 2026):**
+| Provider | Base URL | Auth header | Plan | Request limit |
+|---|---|---|---|---|
+| API-Sports | api-sports.io | `x-apisports-key` | Pro $15/mo | 7,500/day |
+| Highlightly | rugby.highlightly.net | `x-rapidapi-key` | **Pro 7,500/day** | 7,500/day |
+| SportsAPI Pro | v2.rugby.sportsapipro.com | `x-api-key` | — | Unreliable |
+
+Keys stored in Cloud Run Secret Manager. Full endpoint references: `SPORTSAPIPRO.md`, `HIGHLIGHTLY.md`.
+
+---
+
+### v3 Data Sourcing
+
+**Capability matrix** — what each provider actually returns:
+
+| Data | API-Sports | Highlightly | SportsAPI Pro |
+|---|---|---|---|
+| Match list by date | ✅ | ✅ | ✅ unreliable |
+| Live score polling | ✅ poll+filter | ✅ poll+filter | ✅ `/api/live` unreliable |
+| Match status | ✅ `1H/HT/2H/FT/NS` | ✅ description strings | ✅ type strings |
+| Period/half-time scores | ⚠️ present, unreliable, null during live | ❌ | ✅ embedded in schedule |
+| Venue + referee | ❌ | ✅ major leagues only | ✅ |
+| Weather forecast | ❌ | ✅ major leagues only | ❌ |
+| Try timeline / incidents | ❌ | ✅ in match detail response | ✅ unreliable |
+| Match statistics | ❌ | ❌ | ✅ unreliable |
+| Lineups | ❌ | ✅ club + international | ✅ unreliable |
+| Per-player match stats | ❌ | ❌ | ✅ unreliable |
+| Video highlights (embed URL) | ❌ | ✅ YouTube + thumbnail | ✅ URL only |
+| H2H full match list | ✅ back to 2009 | ✅ | ❌ counts only |
+| Win probability predictions | ❌ | ✅ prematch + live | ❌ |
+| Last N results per team | ⚠️ workaround | ✅ dedicated endpoint | ✅ paginated |
+| Standings | ✅ + form + promotion | ✅ no form/promotion | ✅ unreliable |
+| League list | ✅ 142 comps | ✅ 105 comps | ✅ 129 comps |
+| Team season stats | ✅ | ✅ | ✅ unreliable |
+| Team / league logos | ✅ | ✅ patchy | ❌ |
+
+**Logos are managed manually in Firebase** — not sourced from any API. `nameCode` (3-letter code) is the text fallback for missing logos.
+
+---
+
+**Sourcing decisions** — where v3 gets each thing, with fallback chain:
+
+| Data Need | Primary | Fallback 1 | Fallback 2 | Notes |
+|---|---|---|---|---|
+| Match list by date | API-Sports | Highlightly | SAP Pro | API-Sports has highest request budget |
+| Live score updates | API-Sports | Highlightly (poll) | SAP Pro `/api/live` | API-Sports polling uses bulk daily budget efficiently |
+| Match status badge | API-Sports | Highlightly | SAP Pro | Normalise all three to same internal status enum |
+| Period scores (H1/H2) | API-Sports ⚠️ | SAP Pro | — | Only render if non-null; Highlightly has nothing here |
+| Venue + referee | Highlightly | SAP Pro | — | API-Sports has neither |
+| Weather forecast | Highlightly | — | — | Unique to Highlightly |
+| Try timeline / incidents | Highlightly | SAP Pro | — | Highlightly via match detail; incidents embedded in `/matches/{id}` response |
+| Match statistics | SAP Pro | — | — | No alternative; hide section if SAP fails |
+| Lineups | Highlightly | SAP Pro | — | Highlightly embedded in `/matches/{id}` detail response — works for club + international |
+| Video highlights | Highlightly | SAP Pro | — | Highlightly has embed URLs + thumbnails; SAP is URL-only |
+| Win predictions | Highlightly | — | — | Unique to Highlightly |
+| H2H match list | API-Sports | Highlightly | — | Both return full match lists; SAP only gives counts |
+| Last 5 results | Highlightly | SAP Pro | — | Saves API-Sports quota |
+| Standings | API-Sports | Highlightly | SAP Pro | API-Sports has form string + promotion labels |
+| League list | API-Sports | Highlightly | SAP Pro | API-Sports has broadest coverage |
+| Team season stats | API-Sports | Highlightly | SAP Pro | |
+
+---
+
+### The ID Problem
+
+Each provider uses different numeric IDs for the same match, team, and league. Cross-provider fallback requires a mapping layer.
+
+**`allowedLeagues` config stores IDs for all three per competition:**
+```ts
+{
+  name: 'Six Nations',
+  apiSportsId: 180,
+  highlightlyId: 44185,
+  sapId: '423',
+  category: 'International'
+}
+```
+
+**For match-level fallback** (e.g. fetch detail from Highlightly when API-Sports match ID is known): query by `date + homeTeamName + awayTeamName` and fuzzy-match — direct ID translation is not possible.
+
+**Date-based endpoints** (match list, highlights) fall back naturally — all three accept `date=YYYY-MM-DD` with no ID dependency.
+
+---
+
+### API-Sports — confirmed working endpoints
+
 - `GET /games?date=YYYY-MM-DD` — all games on a date (scores null when NS)
 - `GET /games?league=X&season=Y` — all games in a competition/season
-- `GET /games/h2h?h2h=TEAM1-TEAM2` — H2H history (back to 2009+)
-- `GET /standings?league=X&season=Y` — full league table
+- `GET /games/h2h?h2h=TEAM1-TEAM2` — H2H history back to 2009
+- `GET /standings?league=X&season=Y` — full table with form + description
 - `GET /teams?league=X&season=Y` — teams in a competition
 - `GET /teams/statistics?team=X&league=Y&season=Z` — team season stats
 - `GET /leagues` — all 142 competitions
 
-**Endpoints that DO NOT EXIST in the rugby API (do not build around them):**
-- `/games/events` — no try timeline, no scoring events
-- `/games/statistics` — no possession, territory, or any match stats
-- `/games/lineups` — no lineups
-- `/games?live=all` — no live filter parameter
-- `/games?from=X&to=Y` — no date range filter
-- `/players` — no player data
-- `/coaches`, `/injuries`, `/predictions` — none exist
+**Does NOT exist:** `/games/events`, `/games/statistics`, `/games/lineups`, `/games?live=all`, `/games?from=X&to=Y`, `/players`, `/coaches`
 
-**Game object fields available:**
+**Game object fields:**
 ```
 id, date, time, timestamp, week
 status: { short: "FT" | "NS" | "1H" | "HT" | "2H" }
@@ -94,89 +164,60 @@ league: { id, name, type, logo, season }
 teams.home/away: { id, name, logo }
 scores: { home, away }               ← null when NS
 periods.first/second: { home, away } ← null during live; unreliable even after FT
-periods.overtime: { home, away }     ← null in all observed cases
 ```
-No venue. No clock/minute. No referee.
+No venue. No referee. No clock/minute.
 
-**Observed live game data (confirmed 2026-04-24):** scores update each poll, all period scores null during live play, no half-time scores available mid-match. The live experience is: score + status badge only.
+**Live polling:** poll `GET /games?date=today` every 15s. Filter: `status.short !== 'FT' && status.short !== 'NS'` = live.
 
-**Standings fields available:**
-```
-position, points, form ("LWWLW"), description ("Playoffs" | null)
-team: { id, name, logo }
-games: { played, win.total, draw.total, lose.total }
-goals: { for, against }   ← pointsDiff must be calculated as goals.for - goals.against
-```
-
-**Live polling strategy (no live=all endpoint):**
-Poll `GET /games?date=today` every 15s. Any game where `status.short !== 'FT' && status.short !== 'NS'` is live. Live status values confirmed via real match observation (2026-04-24): `1H` (first half), `HT` (half time), `2H` (second half). No clock/minute value is returned.
+**Standings fields:** `position, points, form ("LWWLW"), description ("Playoffs" | null), team: { id, name, logo }, games: { played, win, draw, lose }, goals: { for, against }` — pointsDiff = `goals.for - goals.against`.
 
 ---
 
-**Future provider — SportsAPI Pro Rugby V2 (migration planned)**
-| | |
-|---|---|
-| Provider | SportsAPI Pro (v2.rugby.sportsapipro.com) |
-| Auth | `x-api-key` header |
-| Key | `3ef65f7d-c716-4b78-8bf5-23f5b1c5922e` |
-| Key Storage | Cloud Run Secret Manager |
-| Rule | Backend only. Frontend never calls it directly. |
-| Full reference | `SPORTSAPIPRO.md` |
+### Highlightly — confirmed working endpoints
 
-**Migration status (2026-04-30): COMPLETE.** The app now runs entirely on SportsAPI Pro (rugbylive-api-v2, port 4001). The old rugbylive-api (port 4000 / API-Sports) is no longer used. Frontend `.env.local` points at port 4001.
+Full reference: `HIGHLIGHTLY.md`
 
-**Confirmed working SportsAPI Pro endpoints (2026-04-30):**
-- `GET /api/schedule/:date` — 170 matches on a busy Saturday, period1/period2 scores embedded
-- `GET /api/live` — dedicated live endpoint; returns `data: null` (not error) when nothing live
-- `GET /api/today` — today's full schedule
-- `GET /api/match/:id` — single match with **venue name** and **referee name** (was 503, now working)
-- `GET /api/match/:id/incidents` — try timeline: scorer, minute, running score, cards, substitutions
-- `GET /api/match/:id/statistics` — 60 stats (possession, carries, metres, tackles, lineouts, scrums, turnovers) across ALL/1ST/2ND periods
-- `GET /api/match/:id/lineups` — starting XV + bench, both teams (15+8 each)
-- `GET /api/match/:id/player-statistics` — per-player stats for all 46 players
+- `GET /matches?date=YYYY-MM-DD` — match list; `state.score` is string `"X - Y"` or null
+- `GET /matches/{id}` — adds venue, referee, forecast, predictions, lineups (major leagues)
+- `GET /highlights?date=...&leagueId=...&matchId=...` — YouTube highlights, embed URLs, thumbnails
+- `GET /highlights/{id}` — single highlight
+- `GET /standings?leagueId=X&season=Y` — standings; no form, no promotion zone
+- `GET /leagues` — 105 leagues with logo + seasons list
+- `GET /leagues/{id}` — single league
+- `GET /teams?name=X` — search; returns id/name/logo only
+- `GET /teams/statistics/{id}?fromDate=Y` — per-league season stats
+- `GET /head-2-head?teamIdOne=X&teamIdTwo=Y` — full H2H match list
+- `GET /last-five-games?teamId=X` — last 5 finished matches
+- `GET /countries` — 258 countries
+
+**Not available on BASIC plan:** `/odds`, `/highlights/geo-restrictions/{id}`
+
+**Rate limit: 100 requests/day** — use only for on-demand detail pages and daily-cached data. Never use for live polling.
+
+---
+
+### SportsAPI Pro — confirmed working endpoints
+
+Full reference: `SPORTSAPIPRO.md`
+
+- `GET /api/schedule/:date` — schedule with period1/period2 scores embedded
+- `GET /api/live` — live matches only; returns `data: null` when nothing live
+- `GET /api/match/:id` — venue + referee
+- `GET /api/match/:id/incidents` — try timeline (scorer, minute, running score, cards)
+- `GET /api/match/:id/statistics` — 60 stats across ALL/1ST/2ND
+- `GET /api/match/:id/lineups` — starting XV + bench
+- `GET /api/match/:id/player-statistics` — per-player stats
 - `GET /api/match/:id/highlights` — YouTube URL + thumbnail
-- `GET /api/match/:id/managers` — head coach name for both teams
-- `GET /api/match/:id/h2h` — all-time H2H record: homeWins / awayWins / draws (was 503, now working)
-- `GET /api/match/:id/votes` — fan prediction counts (home / draw / away)
-- `GET /api/teams/:id` — name, nameCode, teamColors hex, home venue, form string
-- `GET /api/teams/:id/near-events` — immediately previous result + next fixture
-- `GET /api/teams/:id/events/last/:page` — paginated results, 30 per page
-- `GET /api/teams/:id/events/next/:page` — paginated upcoming fixtures
-- `GET /api/tournament/:id/info` — competition detail, title holder, colors, hasRounds (was 503, now working)
-- `GET /api/tournament/:id/seasons` — season list with IDs
-- `GET /api/tournament/:id/season/:sid/standings` — full table
-- `GET /api/tournament/:id/season/:sid/rounds` — round list + current round
-- `GET /api/tournament/:id/season/:sid/events/last/:page` — recent results
-- `GET /api/tournament/:id/season/:sid/events/round/:r` — specific round matches
-- `GET /api/categories/:id/tournaments` — all competitions in a category (82 = union, 83 = league)
+- `GET /api/match/:id/votes` — fan vote counts
+- `GET /api/teams/:id` — name, nameCode, teamColors hex, form
+- `GET /api/tournament/:id/season/:sid/standings` — standings
+- `GET /api/categories/:id/tournaments` — all comps in a category
 
-**SportsAPI Pro confirmed NOT available:**
-- `/api/players/:id` — no player profiles
-- `/api/tournament/:id/season/:sid/top-scorers` — not available
-- `/api/search` — team/tournament search by name not available (use IDs from match objects)
-- H2H match list — `/h2h` returns win/loss summary only, no list of past meetings
+**Not available:** player profiles, top scorers, search by name, H2H match list (counts only)
 
-**incidentClass values confirmed in real data:**
-- `try` → try (5pts)
-- `twoPoints` → conversion (union, 2pts)
-- `onePoint` → conversion (league, 1pt)
-- `threePoints` → penalty goal (3pts)
-- `dropGoal` → drop goal (3pts)
-- `yellow` / `red` → cards (appear as goal subtype in some feeds)
+**incidentClass values:** `try`, `twoPoints` (union conversion), `onePoint` (league conversion), `threePoints` (penalty), `dropGoal`, `yellow`, `red`
 
-**What SportsAPI Pro adds over API-Sports:**
-- Try timeline, match stats, lineups, per-player stats, highlights, coaches, fan votes
-- Reliable `period1`/`period2` scores in the schedule response itself
-- `winnerCode`, `teamColors`, `season.id` embedded in every match object
-- Venue name and referee name in single match response
-- Dedicated `/api/live` endpoint — cleaner than polling by date and filtering
-- Team profile + results/fixtures history
-- H2H win/loss summary per match
-
-**What API-Sports still has that SportsAPI Pro doesn't:**
-- Full H2H match list (`/games/h2h` returns individual past games — SportsAPI Pro only gives win/loss counts)
-
-**Logos:** Managed manually in Firebase — not sourced from either API. `teamColors` (hex) from SportsAPI Pro serves as crest fallback colour. `nameCode` is the text fallback.
+**Reliability note:** SAP Pro times out and 503s frequently. All SAP Pro calls must have an 8s timeout and treat timeout/503 as empty (not error). Never block a page render waiting for SAP Pro — load it async and show section only if data arrives.
 
 ### Scheduling
 | Job | Frequency |
@@ -853,10 +894,11 @@ When creating commits: write a short imperative subject line (`feat: add MatchCa
 
 ### Project layout on disk
 ```
-C:\Users\roryw\Documents\Projects\rugby-live\
+/Users/rorywood/Projects/Web/rugby-live/
   rugbylive-web/          ← Next.js 14 frontend (Phase 1 complete)
-  rugbylive-api/          ← Node/Express backend v1 (Phase 1 complete + Firebase wired)
-  rugbylive-api-v2/       ← Node/Express backend v2 (SportsAPI Pro, built 2026-04-30)
+  rugbylive-api/          ← Node/Express backend v1 (API-Sports + Firebase, port 4000) — superseded
+  rugbylive-api-v2/       ← Node/Express backend v2 (SportsAPI Pro only, port 4001) — superseded
+  rugbylive-api-v3/       ← Node/Express backend v3 (multi-API: AS+HL+SAP, port 4002) — ACTIVE
   initial-design/         ← Read-only design reference — do not edit
     RugbyLive UI System.html  ← Visual design canvas
     HANDOFF.md                ← Engineering playbook
@@ -864,10 +906,72 @@ C:\Users\roryw\Documents\Projects\rugby-live\
     styles/                   ← Design tokens CSS
     design-canvas.jsx
   CLAUDE.md               ← This file (single source of truth)
+  HIGHLIGHTLY.md          ← Full Highlightly Rugby API endpoint reference + test results
   SPORTSAPIPRO.md         ← Full SportsAPI Pro endpoint reference + test results
 ```
 
-### Backend v2 status (rugbylive-api-v2)
+### Backend v3 status (rugbylive-api-v3) — CURRENT ACTIVE BACKEND
+- **Built and tested 2026-05-06** — all endpoints verified against live APIs
+- Port **4002**. Multi-provider: API-Sports (primary) → Highlightly (detail/highlights) → SportsAPI Pro (standings fallback)
+- Firebase Admin wired — reads Firestore `/leagues` collection for active league config
+- `.env` exists at `rugbylive-api-v3/.env` (gitignored) — all three API keys + Firebase config
+- Service account loaded from `../rugbylive-api/service-account.json`
+- Start with: `cd rugbylive-api-v3 && npx ts-node src/index.ts`
+- **Frontend not yet migrated to v3** — still points at port 4001
+
+**Endpoints confirmed working in v3:**
+- `GET /health` — liveness check
+- `GET /leagues` — 22 active leagues from Firestore (with apiSportsId, highlightlyId, sapId)
+- `GET /leagues/:id/seasons` — global season years, newest first (API-Sports)
+- `GET /leagues/:id/standings?season=YYYY` — AS → HL → SAP fallback chain
+- `GET /leagues/:id/games?season=YYYY` — AS → SAP fallback chain
+- `GET /matches?date=YYYY-MM-DD` — ONE API-Sports call for all active leagues, filtered by active AS IDs
+- `GET /matches/live` — today's matches filtered to active statuses (1H, HT, 2H)
+- `GET /matches/:id` — match detail (as_ prefix → API-Sports, hl_ → Highlightly)
+- `GET /matches/:id/h2h` — AS H2H for as_ matches, HL H2H for hl_ matches
+- `GET /matches/:id/highlights` — Highlightly only (hl_ matches); as_ returns []
+- `GET /matches/:id/incidents` — Highlightly only (hl_ matches); as_ returns []
+- `GET /matches/:id/detail` — **all data in one call**: score + period scores + venue + referee + weather + lineups + predictions + incidents + highlights + H2H. All fields null/empty when provider has no data — never throws. Sources map indicates which provider delivered each section.
+- `GET /admin/leagues` — all 142 leagues including inactive
+- `PATCH /admin/leagues/:id` — toggle active, category, provider IDs
+
+**Key design decisions:**
+- Date-based match polling: ONE API-Sports call (`/games?date=`) covering all leagues → filtered by active AS IDs. Does NOT call Highlightly for polling (7,500/day limit should be preserved for detail pages).
+- Highlightly reserved for: highlights, incidents, lineups, predictions, venue, referee (on-demand via `/detail` endpoint only)
+- SAP Pro used only for standings fallback (when AS returns empty for knockout comps)
+- Firestore doc ID IS the API-Sports league ID — `apiSportsId` falls back to `Number(doc.id)` if not explicitly stored
+- Active league detection: `active !== false` (treats missing `active` field as active)
+- Match IDs are provider-prefixed: `as_XXXX`, `hl_XXXX`, `sap_XXXX`
+- Competition ID on match objects = Firestore doc ID (canonical across providers)
+
+**v3 Firestore league config (22 active leagues, 2026-05-06):**
+```
+Doc ID = API-Sports ID   Name                         HL ID   SAP ID
+10                        Premiership Rugby Cup         9294    null
+12                        Greene King IPA Championship 10996   1323
+13                        Premiership Rugby            11847   424
+16                        Top 14                       14400   420
+17                        Pro D2                       15251   1147
+27                        Top League                   23761   null
+44                        Major League Rugby           38228   14662
+51                        Six Nations                  44185   423
+52                        Challenge Cup                45036   752
+54                        European Rugby Champions Cup 46738   401
+56                        Six Nations U20              48440   null
+58                        Rugby Europe Championship    50142   null
+69                        World Cup                    59503   null
+71                        Super Rugby                  61205   422
+76                        United Rugby Championship    65460   419
+80                        Bunnings NPC                 68864   797
+84                        Friendly International       72268   876
+85                        Rugby Championship           73119   789
+88                        Lions Tour                   75672   null
+90                        Pacific Nations Cup          77374   13667
+92                        Americas Pacific Challenge   79076   null
+96                        Club Friendly                82480   null
+```
+
+### Backend v2 status (rugbylive-api-v2) — superseded by v3
 - **Built and tested 2026-04-30** — all endpoints verified against live SportsAPI Pro
 - Port 4001 (v1 stays on 4000 — both can run simultaneously)
 - No Firebase dependency — fully stateless
@@ -969,6 +1073,16 @@ C:\Users\roryw\Documents\Projects\rugby-live\
 - **`prevDateRef` bug fix**: was `useRef(todayStr)` (stored the function), fixed to `useRef(todayStr())` (stores the string).
 - **`CompGroupHeader` round label**: only prepends "Round " when the value is a plain number. Named rounds (Semi-finals, Final, Quarter-finals, etc.) render as-is.
 
+**Confirmed changes (2026-05-06 session — v3 multi-provider backend):**
+- **`rugbylive-api-v3` built** — port 4002, multi-provider: API-Sports + Highlightly + SportsAPI Pro
+- **Highlightly upgraded to Pro plan** — 7,500 req/day (was 100/day on Basic)
+- **All 13 endpoints verified** against live APIs (see Backend v3 status section above)
+- **Single API-Sports call per date poll** — `GET /games?date=` fetches all leagues at once, filtered to active AS IDs. Cost: 1 request per poll cycle regardless of how many leagues are active.
+- **Firestore doc ID = API-Sports ID** — `apiSportsId` derived from `Number(doc.id)` if not stored explicitly
+- **Active league detection fixed** — `active !== false` handles Firestore docs that never had the field explicitly set to `true`
+- **22 active leagues** confirmed in Firestore with all three provider IDs stored
+- **HIGHLIGHTLY.md** and **SPORTSAPIPRO.md** created — full endpoint references + test results
+
 **Confirmed changes (2026-04-30 session — SportsAPI Pro v2 migration):**
 - **Backend migrated**: frontend now points at `rugbylive-api-v2` (port 4001, SportsAPI Pro). Old `rugbylive-api` (API-Sports) no longer used.
 - **`Match.week` → `Match.round`**: renamed throughout — `MatchCard`, `MatchHero`, `matches/page.tsx`, `types/index.ts`. SAP v2 returns `round` as a string from `roundInfo.name` (e.g. "Round 18" or "Semi-final"). MatchCard/MatchHero detect plain numbers and prepend "Rd"/"Round".
@@ -995,16 +1109,17 @@ To get true real-time score updates (pushed from RTDB instead of polled from API
 | Task | Command |
 |---|---|
 | Frontend dev server | `cd rugbylive-web && npm run dev` (port 3000) |
-| **Backend dev server** | `cd rugbylive-api-v2 && npx ts-node src/index.ts` **(port 4001 — this is the active backend)** |
+| **Backend dev server** | `cd rugbylive-api-v3 && npx ts-node src/index.ts` **(port 4002 — this is the active backend)** |
 | Frontend type-check | `cd rugbylive-web && ./node_modules/.bin/tsc --noEmit` |
-| Backend type-check | `cd rugbylive-api-v2 && ./node_modules/.bin/tsc --noEmit` |
+| Backend type-check | `cd rugbylive-api-v3 && ./node_modules/.bin/tsc --noEmit` |
 | Frontend tests | `cd rugbylive-web && npm test` |
 | Build frontend | `cd rugbylive-web && npm run build` |
-| Docker build (API) | `cd rugbylive-api-v2 && docker build -t rugbylive-api .` |
+| Docker build (API) | `cd rugbylive-api-v3 && docker build -t rugbylive-api .` |
 
 ### Local env setup
-- Frontend: `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4001` ✓ exists
-- Backend: `rugbylive-api-v2/.env` with `SPORTS_API_PRO_KEY=3ef65f7d-c716-4b78-8bf5-23f5b1c5922e` and `PORT=4001` ✓ exists (gitignored)
+- Frontend: `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4001` — **needs updating to port 4002 when migrating to v3**
+- Backend v3: `rugbylive-api-v3/.env` with all three API keys + Firebase config ✓ exists (gitignored)
+- Backend v2 (old): `rugbylive-api-v2/.env` with `SPORTS_API_PRO_KEY` ✓ exists (gitignored)
 
 ### Test strategy (from HANDOFF.md)
 - **Unit (Vitest)**: score ordering, `pointsDiff` formatting, status→badge mapping, `hashStr` stability
