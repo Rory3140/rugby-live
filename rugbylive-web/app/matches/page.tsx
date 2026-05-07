@@ -64,12 +64,13 @@ export default function MatchesPage() {
       if (!map.has(id)) map.set(id, { competition: m.competition, matches: [], round: m.round })
       map.get(id)!.matches.push(m)
     }
-    // Followed leagues first, rest alphabetically
+    const earliest = (matches: Match[]) =>
+      Math.min(...matches.map(m => new Date(m.kickoff).getTime()))
     return Array.from(map.values()).sort((a, b) => {
       const aF = followedLeagues.includes(a.competition.id) ? 0 : 1
       const bF = followedLeagues.includes(b.competition.id) ? 0 : 1
       if (aF !== bF) return aF - bF
-      return a.competition.name.localeCompare(b.competition.name)
+      return earliest(a.matches) - earliest(b.matches)
     })
   }, [filtered, followedLeagues])
 
