@@ -79,7 +79,7 @@ export default function MatchPage({ params }: { params: { id: string } }) {
     )
   }
 
-  const { match, venue, referee, predictions, lineups, incidents, highlights, h2h } = detail
+  const { match, venue, referee, weather, predictions, lineups, incidents, highlights, h2h } = detail
   const hasPeriods = match.periods.first.home != null || match.periods.second.home != null
 
   return (
@@ -116,7 +116,7 @@ export default function MatchPage({ params }: { params: { id: string } }) {
 
       {/* Hero */}
       <div style={{ marginBottom: 20 }}>
-        <MatchHero match={match} venue={venue} referee={referee} />
+        <MatchHero match={match} venue={venue} referee={referee} weather={weather} />
       </div>
 
       {/* Tab bar */}

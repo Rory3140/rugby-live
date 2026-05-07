@@ -3,7 +3,6 @@ import { Bebas_Neue, DM_Sans, DM_Mono } from 'next/font/google'
 import './globals.css'
 import Providers from './providers'
 import Navbar from '@/components/layout/Navbar'
-import Sidebar from '@/components/layout/Sidebar'
 import MobileNav from '@/components/layout/MobileNav'
 
 const bebas = Bebas_Neue({
@@ -36,18 +35,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
             <Navbar />
-            <div style={{
+            <main style={{
               flex: 1,
-              display: 'flex',
               maxWidth: 1120,
               margin: '0 auto',
               width: '100%',
-            }}>
-              <Sidebar />
-              <main style={{ flex: 1, minWidth: 0, paddingBottom: 80 }} className="md:pb-0">
-                {children}
-              </main>
-            </div>
+              minWidth: 0,
+              paddingBottom: 80,
+            }} className="md:pb-0">
+              {children}
+            </main>
           </div>
           <MobileNav />
         </Providers>

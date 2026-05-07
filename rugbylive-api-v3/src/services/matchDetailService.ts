@@ -169,7 +169,9 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
 
     const f = hlDetail.forecast ?? hlDetail.weatherForecast
     if (f && (f.status || f.temperature)) {
-      weather = { status: f.status ?? null, temperature: f.temperature ?? null }
+      const rawTemp: string | null = f.temperature ?? null
+      const temperature = rawTemp ? rawTemp.replace(/(\d+)\.\d+/, '$1') : null
+      weather = { status: f.status ?? null, temperature }
     }
 
     lineups = extractLineups(hlDetail)

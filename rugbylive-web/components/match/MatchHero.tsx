@@ -2,16 +2,17 @@
 import TeamCrest from '@/components/ui/TeamCrest'
 import CompLogo from '@/components/ui/CompLogo'
 import LiveBadge from '@/components/ui/LiveBadge'
-import type { Match, Venue, Referee } from '@/types'
+import type { Match, Venue, Referee, Weather } from '@/types'
 import { isLive, isTerminal, formatKickoff } from '@/lib/utils'
 
 interface Props {
   match: Match
   venue?: Venue | null
   referee?: Referee | null
+  weather?: Weather | null
 }
 
-export default function MatchHero({ match, venue, referee }: Props) {
+export default function MatchHero({ match, venue, referee, weather }: Props) {
   const { homeTeam, awayTeam, homeScore, awayScore, status, kickoff, competition, round } = match
   const live = isLive(status)
   const finished = isTerminal(status)
@@ -131,6 +132,14 @@ export default function MatchHero({ match, venue, referee }: Props) {
           <>
             <span>·</span>
             <span>Ref: {referee.name}</span>
+          </>
+        )}
+        {(weather?.temperature || weather?.status) && (
+          <>
+            <span>·</span>
+            <span>
+              {[weather.temperature, weather.status].filter(Boolean).join(' · ')}
+            </span>
           </>
         )}
       </div>

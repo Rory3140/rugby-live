@@ -46,7 +46,7 @@ export default function LeaguesPage() {
       if (!map.has(cat)) map.set(cat, [])
       map.get(cat)!.push(l)
     }
-    for (const [, arr] of map) arr.sort((a, b) => a.name.localeCompare(b.name))
+    Array.from(map.values()).forEach(arr => arr.sort((a, b) => a.name.localeCompare(b.name)))
     return map
   }, [filtered, search])
 

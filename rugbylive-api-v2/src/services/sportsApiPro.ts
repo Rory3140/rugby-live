@@ -46,7 +46,7 @@ const RUGBY_LEAGUE_CATEGORY = 83
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 
-const SAP_TIMEOUT_MS = 8_000
+const SAP_TIMEOUT_MS = 5_000
 
 async function sapFetch<T>(path: string): Promise<T> {
   const url = `${BASE_URL}${path}`
@@ -109,10 +109,12 @@ function setCache<T>(key: string, data: T, ttlMs: number): void {
 }
 
 const TTL = {
-  schedule: 30_000,      // 30s — live scores need to refresh
-  seasons:  3_600_000,   // 1h  — season list rarely changes
-  standings: 300_000,    // 5m
-  events:    60_000,     // 1m
+  schedule:      30_000,   // 30s — live scores need to refresh
+  scheduleEmpty: 120_000,  // 2m  — dead dates: don't hammer SAP while it's struggling
+  seasons:     3_600_000,  // 1h  — season list rarely changes
+  standings:     300_000,  // 5m
+  events:         60_000,  // 1m
+  eventsEmpty:   120_000,  // 2m  — same as scheduleEmpty
 }
 
 // ─── Status normalisation ─────────────────────────────────────────────────────
@@ -397,7 +399,10 @@ export async function getMatchesByDate(date: string): Promise<ApiResponse<Match[
     setCache(cacheKey, matches, TTL.schedule)
     return { data: matches, meta: meta() }
   } catch (err: any) {
-    if (isSapEmpty(err)) return { data: [], meta: meta() }
+    if (isSapEmpty(err)) {
+      setCache(cacheKey, [], TTL.scheduleEmpty)
+      return { data: [], meta: meta() }
+    }
     throw err
   }
 }
@@ -582,7 +587,10 @@ export async function getSeasonEvents(tournamentId: string, seasonId: string): P
     setCache(cacheKey, matches, TTL.events)
     return { data: matches, meta: meta() }
   } catch (err: any) {
-    if (isSapEmpty(err)) return { data: [], meta: meta() }
+    if (isSapEmpty(err)) {
+      setCache(cacheKey, [], TTL.eventsEmpty)
+      return { data: [], meta: meta() }
+    }
     throw err
   }
 }

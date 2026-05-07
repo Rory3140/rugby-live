@@ -23,10 +23,21 @@ export default function LeaguePage({ params }: { params: { id: string } }) {
 
   // Fetch seasons dynamically — picks the most recent (index 0, sorted newest first by API)
   const { data: seasons = [], isLoading: loadingSeasons } = useLeagueSeasons(params.id)
-  const currentSeason = seasons.find(s => s.current) ?? seasons[0] ?? null
-  const seasonId = currentSeason?.id
+  const preferredSeason = seasons.find(s => s.current) ?? seasons[0] ?? null
+  const seasonId = preferredSeason?.id
 
-  const { data: standings = [], isLoading: loadingStandings } = useStandings(params.id, seasonId)
+  const { data: rawStandings = [], isLoading: loadingStandings } = useStandings(params.id, seasonId)
+
+  // If current season hasn't started (all played = 0), fall back to the previous season
+  const allUnplayed = rawStandings.length > 0 && rawStandings.every((s: import('@/types').Standing) => s.played === 0)
+  const fallbackSeasonId = allUnplayed ? (seasons[1]?.id ?? undefined) : undefined
+  const { data: fallbackStandings = [] } = useStandings(params.id, fallbackSeasonId)
+
+  const standings = allUnplayed && fallbackStandings.length > 0 ? fallbackStandings : rawStandings
+  const currentSeason = allUnplayed && fallbackStandings.length > 0
+    ? (seasons[1] ?? preferredSeason)
+    : preferredSeason
+
   const { data: allMatches = [], isLoading: loadingMatches } = useLeagueMatches(params.id, seasonId)
 
   const isFollowing = useFollowStore(s => s.isFollowingLeague(params.id))
@@ -142,7 +153,7 @@ export default function LeaguePage({ params }: { params: { id: string } }) {
             ? <div className="rl-skeleton" style={{ height: 200, borderRadius: 10 }} />
             : fixtures.length
               ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-                  {fixtures.map(m => <MatchCard key={m.id} match={m} />)}
+                  {fixtures.map(m => <MatchCard key={m.id} match={m} showDate />)}
                 </div>
               : <EmptyState msg="No upcoming fixtures" />
         )}
@@ -152,7 +163,7 @@ export default function LeaguePage({ params }: { params: { id: string } }) {
             ? <div className="rl-skeleton" style={{ height: 200, borderRadius: 10 }} />
             : results.length
               ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-                  {results.map(m => <MatchCard key={m.id} match={m} />)}
+                  {results.map(m => <MatchCard key={m.id} match={m} showDate />)}
                 </div>
               : <EmptyState msg="No results yet" />
         )}

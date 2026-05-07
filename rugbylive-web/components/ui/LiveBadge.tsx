@@ -2,6 +2,13 @@ interface Props {
   clock?: string
 }
 
+function formatClock(raw: string): string {
+  if (raw === '1H') return '1ST'
+  if (raw === '2H') return '2ND'
+  if (raw === 'HT') return 'HT'
+  return raw
+}
+
 export default function LiveBadge({ clock = 'LIVE' }: Props) {
   return (
     <span style={{
@@ -19,7 +26,7 @@ export default function LiveBadge({ clock = 'LIVE' }: Props) {
       flexShrink: 0,
     }}>
       <span className="rl-live-dot" />
-      <span>{clock}</span>
+      <span>{formatClock(clock)}</span>
     </span>
   )
 }
