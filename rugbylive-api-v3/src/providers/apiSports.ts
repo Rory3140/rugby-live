@@ -125,16 +125,31 @@ export async function fetchStandings(apiSportsId: number, season: number, league
   }
 }
 
-// API-Sports returns global seasons (years) — not per-league. Pass 0 to skip league filter.
-export async function fetchSeasons(_apiSportsId: number): Promise<Season[]> {
+export async function fetchSeasons(apiSportsId: number): Promise<Season[]> {
   try {
+    const currentYear = new Date().getFullYear()
+    if (apiSportsId > 0) {
+      // Per-league seasons — preferred; returns only seasons that league actually ran
+      const response = await apiFetch<any[]>(`/leagues?id=${apiSportsId}`)
+      const league = Array.isArray(response) ? response[0] : null
+      const seasons: any[] = league?.seasons ?? []
+      return seasons
+        .filter((s: any) => Number(s.season) <= currentYear)
+        .sort((a: any, b: any) => b.season - a.season)
+        .map((s: any) => ({
+          id: String(s.season),
+          name: String(s.season),
+          year: String(s.season),
+          current: s.current === true,
+        }))
+    }
+    // Fallback: global season list
     const data = await apiFetch<any[]>(`/seasons`)
     if (!Array.isArray(data)) return []
-    const currentYear = new Date().getFullYear()
     return data
       .filter((s: any) => Number(s) <= currentYear)
       .map((s: any) => ({ id: String(s), name: String(s), year: String(s) }))
-      .reverse() // most recent first
+      .reverse()
   } catch {
     return []
   }

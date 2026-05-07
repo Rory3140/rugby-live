@@ -93,6 +93,7 @@ export interface Season {
   id: string
   name: string
   year: string
+  current?: boolean
 }
 
 export interface ApiResponse<T> {

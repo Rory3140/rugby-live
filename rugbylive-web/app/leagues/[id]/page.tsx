@@ -23,7 +23,7 @@ export default function LeaguePage({ params }: { params: { id: string } }) {
 
   // Fetch seasons dynamically — picks the most recent (index 0, sorted newest first by API)
   const { data: seasons = [], isLoading: loadingSeasons } = useLeagueSeasons(params.id)
-  const currentSeason = seasons[0] ?? null
+  const currentSeason = seasons.find(s => s.current) ?? seasons[0] ?? null
   const seasonId = currentSeason?.id
 
   const { data: standings = [], isLoading: loadingStandings } = useStandings(params.id, seasonId)

@@ -23,12 +23,9 @@ router.get('/', async (_req, res, next) => {
 })
 
 // GET /leagues/:id/seasons
-// Returns a list of available seasons (years) for the league.
-// API-Sports seasons are global (not per-league), so we return all years
-// and let the client pick the current one.
 router.get('/:id/seasons', async (req, res, next) => {
   try {
-    const seasons = await AS.fetchSeasons(0) // 0 = no league filter = global list
+    const seasons = await AS.fetchSeasons(Number(req.params.id))
     ok(res, seasons, 'api-sports')
   } catch (e) { next(e) }
 })

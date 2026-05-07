@@ -60,6 +60,7 @@ export interface Season {
   id: string    // year string e.g. "2025" — used as ?season= param
   name: string
   year: string
+  current?: boolean
 }
 
 // ── v3 match detail types ─────────────────────────────────────────────────────
