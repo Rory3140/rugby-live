@@ -85,11 +85,7 @@ export function formatMatchDate(iso: string): string {
 export function formatCardDate(iso: string): string {
   try {
     const d = new Date(iso)
-    const currentYear = new Date().getFullYear()
-    const opts: Intl.DateTimeFormatOptions = d.getFullYear() === currentYear
-      ? { day: 'numeric', month: 'short' }
-      : { day: 'numeric', month: 'short', year: 'numeric' }
-    return new Intl.DateTimeFormat('en-GB', opts).format(d)
+    return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(d)
   } catch {
     return iso.slice(0, 10)
   }

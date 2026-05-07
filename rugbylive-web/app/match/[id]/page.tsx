@@ -240,7 +240,7 @@ export default function MatchPage({ params }: { params: { id: string } }) {
                   <div className="rl-label" style={{ marginBottom: 14 }}>Recent Meetings</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {h2h.recentMatches.map((m: Match) => (
-                      <MatchCard key={m.id} match={m} />
+                      <MatchCard key={m.id} match={m} showDate />
                     ))}
                   </div>
                 </div>
