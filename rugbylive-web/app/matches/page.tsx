@@ -93,7 +93,7 @@ export default function MatchesPage() {
     router.replace(`/matches?date=${date}`, { scroll: false })
   }
 
-  function handlePickDate(date: string, _offset: number) {
+  function handlePickDate(date: string) {
     setWindowOffset(windowOffsetForDate(date))
     changeDate(date)
   }
@@ -139,7 +139,7 @@ export default function MatchesPage() {
             ref={calendarRef}
             type="date"
             value={selectedDate}
-            onChange={(e) => { if (e.target.value) handlePickDate(e.target.value, Math.round((new Date(e.target.value + 'T00:00:00').getTime() - new Date(new Date().setHours(0,0,0,0)).getTime()) / 86_400_000) - 2) }}
+            onChange={(e) => { if (e.target.value) handlePickDate(e.target.value) }}
             style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, pointerEvents: 'none' }}
           />
         </div>

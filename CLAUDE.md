@@ -33,7 +33,7 @@ A Swift iOS app will come later — the backend must be built as a clean statele
 | Animations | Framer Motion |
 | Icons | Lucide React |
 | Fonts | Bebas Neue, DM Sans, DM Mono (Google Fonts) |
-| Hosting | Firebase Hosting |
+| Hosting | Google Cloud Run |
 
 ### Backend
 | Layer | Technology |
@@ -42,8 +42,8 @@ A Swift iOS app will come later — the backend must be built as a clean statele
 | Language | TypeScript |
 | Container | Docker |
 | Hosting | Google Cloud Run |
-| Region | europe-west2 (London) |
-| Min Instances | 1 (always warm — no cold starts) |
+| Regions | europe-west2 (London), us-east1 (S. Carolina) |
+| Min Instances | 1 per region (always warm — no cold starts) |
 | Secrets | Google Cloud Secret Manager |
 
 ### Firebase (all services)
@@ -565,64 +565,38 @@ Following:  "Following"  — border: rgba(232,255,71,0.35), color: var(--accent)
   /types
     /index.ts                     ← Match, Team, League, Event, Standing types
 
-/rugbylive-api                    ← Node.js backend v1 — API-Sports + Firebase (port 4000)
+/rugbylive-api                    ← Node.js backend (v3, ACTIVE) — multi-provider (port 4002)
   /src
+    /config
+      /firebase.ts               ← Firebase Admin init (file path local, env var on Cloud Run)
+      /leagues.ts                ← allowedLeagues config with all 3 provider IDs
+      /teams.ts                  ← team config helpers
+    /providers
+      /apiSports.ts              ← API-Sports wrapper
+      /highlightly.ts            ← Highlightly wrapper
+      /sportsApiPro.ts           ← SportsAPI Pro wrapper (4s DETAIL_TIMEOUT)
     /routes
-      /matches.ts                 ← GET /matches, GET /matches/:id
-      /leagues.ts                 ← GET /leagues, GET /leagues/:id/standings
-      /teams.ts                   ← GET /teams/:id
-      /players.ts                 ← GET /players/:id
-      /poll.ts                    ← POST /poll (called by Cloud Scheduler)
-      /admin.ts                   ← GET /admin/leagues (all incl. inactive), PATCH /admin/leagues/:id
-    /jobs
-      /pollScores.ts              ← Fetches live scores → writes Realtime DB
-      /pollFixtures.ts            ← Fetches fixtures → writes Firestore
+      /matches.ts                ← GET /matches, /matches/live, /matches/:id, /matches/:id/detail, /matches/:id/h2h, /matches/:id/highlights, /matches/:id/incidents
+      /leagues.ts                ← GET /leagues, /leagues/:id/standings, /leagues/:id/seasons, /leagues/:id/games
+      /admin.ts                  ← GET /admin/leagues (all incl. inactive), PATCH /admin/leagues/:id
     /services
-      /apiSports.ts               ← API-Sports wrapper (all calls here)
-      /firebaseAdmin.ts           ← Firebase Admin SDK init (Firestore + RTDB)
-      /store.ts                   ← All Firestore + RTDB read/write helpers
-      /notifications.ts           ← FCM push sender (stubbed — Phase 2)
+      /matchesService.ts         ← Date-based match list (API-Sports primary)
+      /matchDetailService.ts     ← All-in-one detail: score + venue + weather + lineups + incidents + highlights + H2H
+      /crossRefService.ts        ← SAP match ID resolution (Firestore sapTeamId + fuzzy name)
+      /matchResolver.ts          ← Provider-prefixed ID routing (as_, hl_, sap_)
     /middleware
-      /cors.ts                    ← Allow rugbylive.app + localhost
+      /cors.ts                   ← origin: true (all origins allowed)
       /errorHandler.ts
       /rateLimiter.ts
     /types
-      /apiSports.ts               ← API-Sports response types
-      /internal.ts                ← Internal normalised types
-    /index.ts                     ← Express app + server
+      /internal.ts               ← Normalised internal types
+    /index.ts                    ← Express app + server
+  /scripts
+    /discoverSapTeamIds.mjs      ← One-off: auto-matched 119 + 9 manual = 128 teams with sapTeamId
   /Dockerfile
   /.dockerignore
-
-/rugbylive-api-v2                 ← Node.js backend v2 — SportsAPI Pro only, no Firebase (port 4001)
-  /src
-    /routes
-      /matches.ts   ← GET /matches, /matches/live, /matches/today, /matches/:id,
-                       /matches/:id/incidents, /statistics, /lineups, /player-statistics,
-                       /highlights, /managers, /h2h, /votes
-      /leagues.ts   ← GET /leagues, /leagues/:id, /leagues/:id/seasons, /standings,
-                       /rounds, /games (with optional ?round=)
-      /teams.ts     ← GET /teams/:id, /teams/:id/near-events, /results, /fixtures
-      /poll.ts      ← POST /poll — live diff detector, no Firebase writes
-    /services
-      /sportsApiPro.ts  ← All SportsAPI Pro calls + normalisation
-    /middleware
-      /cors.ts, errorHandler.ts, rateLimiter.ts
-    /types
-      /sportsApiPro.ts  ← Raw SportsAPI Pro response types
-      /internal.ts      ← Normalised internal types (extended vs v1: period scores, winnerCode,
-                           venue, referee, teamColors, incidents, stats, lineups, player stats,
-                           highlights, coaches, H2H summary, votes, team profile)
-    /index.ts           ← Express app, port 4001
-  /.env                 ← SPORTS_API_PRO_KEY + PORT=4001 (gitignored)
-  /package.json
-  /tsconfig.json
-  /.dockerignore
-
-/rugbylive-api-v3/scripts/
-  discoverSapTeamIds.mjs         ← One-off script: fetches SAP standings for all active leagues
-                                    with a sapId, name-matches against Firestore teams, writes
-                                    sapTeamId back. Result: 119 auto-matched + 9 manually patched
-                                    = 128 teams total in Firestore with sapTeamId populated.
+  /.env                          ← PORT=4002, API_SPORTS_KEY, HIGHLIGHTLY_KEY, SAP_KEY, FIREBASE_SERVICE_ACCOUNT (gitignored)
+  /rugby-live-9c1c7-firebase-adminsdk-fbsvc-a783e2b586.json  ← Firebase service account (gitignored)
 ```
 
 ---
@@ -885,11 +859,9 @@ When creating commits: write a short imperative subject line (`feat: add MatchCa
 
 ### Project layout on disk
 ```
-/Users/rorywood/Projects/Web/rugby-live/
+C:\Users\RoryWood\Documents\rugby-live\
   rugbylive-web/          ← Next.js 14 frontend (Phase 1 complete)
-  rugbylive-api/          ← Node/Express backend v1 (API-Sports + Firebase, port 4000) — superseded
-  rugbylive-api-v2/       ← Node/Express backend v2 (SportsAPI Pro only, port 4001) — superseded
-  rugbylive-api-v3/       ← Node/Express backend v3 (multi-API: AS+HL+SAP, port 4002) — ACTIVE
+  rugbylive-api/          ← Node/Express backend (multi-API: AS+HL+SAP, port 4002) — ACTIVE
   initial-design/         ← Read-only design reference — do not edit
     RugbyLive UI System.html  ← Visual design canvas
     HANDOFF.md                ← Engineering playbook
@@ -901,14 +873,14 @@ When creating commits: write a short imperative subject line (`feat: add MatchCa
   SPORTSAPIPRO.md         ← Full SportsAPI Pro endpoint reference + test results
 ```
 
-### Backend v3 status (rugbylive-api-v3) — CURRENT ACTIVE BACKEND
+### Backend status (rugbylive-api) — CURRENT ACTIVE BACKEND
 - **Built and tested 2026-05-06** — all endpoints verified against live APIs
 - Port **4002**. Multi-provider: API-Sports (primary) → Highlightly (detail/highlights) → SportsAPI Pro (standings fallback)
 - Firebase Admin wired — reads Firestore `/leagues` collection for active league config
-- `.env` exists at `rugbylive-api-v3/.env` (gitignored) — all three API keys + Firebase config
-- Service account loaded from `../rugbylive-api/service-account.json`
-- Start with: `cd rugbylive-api-v3 && npx ts-node src/index.ts`
-- **Frontend not yet migrated to v3** — still points at port 4001
+- `.env` exists at `rugbylive-api/.env` (gitignored) — all three API keys + Firebase config
+- Service account JSON at `rugbylive-api/rugby-live-9c1c7-firebase-adminsdk-fbsvc-a783e2b586.json` (gitignored)
+- Start with: `cd rugbylive-api && npx ts-node src/index.ts`
+- **Deployed to Cloud Run** — europe-west2 and us-east1 (see Deployed URLs below)
 
 **Endpoints confirmed working in v3:**
 - `GET /health` — liveness check
@@ -964,47 +936,28 @@ Doc ID = API-Sports ID   Name                         HL ID   SAP ID    Active
 
 **Firestore teams collection (2026-05-07):** 128 teams have `sapTeamId` populated. SAP team IDs discovered via `discoverSapTeamIds.mjs` script (119 auto-matched from SAP standings, 9 manually patched for name-variant teams e.g. "Harlequin FC" → "Harlequins", "Connacht Rugby" → "Connacht Eagles").
 
-### Backend v2 status (rugbylive-api-v2) — superseded by v3
-- **Built and tested 2026-04-30** — all endpoints verified against live SportsAPI Pro
-- Port 4001 (v1 stays on 4000 — both can run simultaneously)
-- No Firebase dependency — fully stateless
-- `.env` exists at `rugbylive-api-v2/.env` (gitignored) — contains `SPORTS_API_PRO_KEY`, `PORT=4001`
-- Start with: `cd rugbylive-api-v2 && npx ts-node src/index.ts`
-- Frontend not yet migrated to v2 — still points at port 4000
+### Deployed URLs (2026-05-08)
 
-**Endpoints confirmed working in v2:**
-- `GET /health` — liveness check
-- `GET /matches?date=YYYY-MM-DD` — schedule by date (170 matches on busy Saturdays)
-- `GET /matches/live` — live matches (empty array when nothing live, not an error)
-- `GET /matches/today` — today's full schedule
-- `GET /matches/:id` — single match with venue + referee (uses `/api/match/:id` directly)
-- `GET /matches/:id/incidents` — try timeline, 41 events for a Premiership match
-- `GET /matches/:id/statistics` — 60 stats across ALL/1ST/2ND periods
-- `GET /matches/:id/lineups` — starting XV + bench both teams
-- `GET /matches/:id/player-statistics` — per-player stats (46 players)
-- `GET /matches/:id/highlights` — YouTube URL + thumbnail
-- `GET /matches/:id/managers` — head coaches both teams
-- `GET /matches/:id/h2h` — homeWins/awayWins/draws all-time record
-- `GET /matches/:id/votes` — fan prediction vote counts
-- `GET /leagues` — 129 tournaments (categories 82 + 83)
-- `GET /leagues/:id` — tournament info with title holder
-- `GET /leagues/:id/seasons` — season list with IDs
-- `GET /leagues/:id/standings?season=:sid` — full table
-- `GET /leagues/:id/rounds?season=:sid` — round navigator + current round
-- `GET /leagues/:id/games?season=:sid[&round=:r]` — results/fixtures by season or round
-- `GET /teams/:id` — profile (nameCode, colors, venue, form)
-- `GET /teams/:id/near-events` — previous result + next fixture
-- `GET /teams/:id/results?page=N` — paginated results, 30/page
-- `GET /teams/:id/fixtures?page=N` — paginated fixtures, 30/page
-- `POST /poll` — live diff detector (returns polled/live/changes counts, no Firebase writes)
+| Service | Region | URL | Status |
+|---|---|---|---|
+| Backend API | us-east1 (S. Carolina) | https://rugbylive-api-781497782595.us-east1.run.app | ✅ Active (min-instances=1) |
+| Frontend | us-east1 (S. Carolina) | https://rugbylive-web-781497782595.us-east1.run.app | ✅ Active (min-instances=1) |
+| Backend API | europe-west2 (London) | https://rugbylive-api-781497782595.europe-west2.run.app | 💤 Scaled to zero (free, cold start) |
+| Frontend | europe-west2 (London) | https://rugbylive-web-781497782595.europe-west2.run.app | 💤 Scaled to zero (free, cold start) |
 
-### Backend status (rugbylive-api)
-- Phase 1 complete and tested against live API
-- `dotenv` installed; `import 'dotenv/config'` is the first line of `src/index.ts`
-- Local `.env` file exists at `rugbylive-api/.env` (gitignored) — contains `API_SPORTS_KEY`, `PORT=4000`, `FIREBASE_SERVICE_ACCOUNT`, `FIREBASE_DATABASE_URL`
-- `service-account.json` exists at `rugbylive-api/service-account.json` (gitignored) — Firebase Admin credentials
-- Start with: `cd rugbylive-api && npx ts-node src/index.ts` (nodemon optional, not required)
-- Firebase fully wired — Firestore + Realtime Database live and tested (2026-04-25)
+**Development**: use US URLs — lowest latency while developing from the US.
+**Full release**: scale EU back to min-instances=1 — EU is the primary region for production (rugby audience is majority European). US stays as secondary.
+
+To restore EU for release:
+```
+gcloud run services update rugbylive-api --region=europe-west2 --project=rugby-live-9c1c7 --min-instances=1
+gcloud run services update rugbylive-web --region=europe-west2 --project=rugby-live-9c1c7 --min-instances=1
+```
+
+- EU frontend calls EU backend; US frontend calls US backend
+- Secrets in Cloud Run Secret Manager (project: rugby-live-9c1c7)
+- CORS: `origin: true` (all origins allowed — public app, no auth)
+- GCP project: `rugby-live-9c1c7`, account: `rory31401@gmail.com`
 
 ### Firebase integration status (confirmed working 2026-04-25)
 - **Realtime Database**: today's games written to `/games/{date}/{gameId}` on every poll
@@ -1121,17 +1074,17 @@ To get true real-time score updates (pushed from RTDB instead of polled from API
 | Task | Command |
 |---|---|
 | Frontend dev server | `cd rugbylive-web && npm run dev` (port 3000) |
-| **Backend dev server** | `cd rugbylive-api-v3 && npx ts-node src/index.ts` **(port 4002 — this is the active backend)** |
+| **Backend dev server** | `cd rugbylive-api && npx ts-node src/index.ts` **(port 4002 — active backend)** |
 | Frontend type-check | `cd rugbylive-web && ./node_modules/.bin/tsc --noEmit` |
-| Backend type-check | `cd rugbylive-api-v3 && ./node_modules/.bin/tsc --noEmit` |
+| Backend type-check | `cd rugbylive-api && ./node_modules/.bin/tsc --noEmit` |
 | Frontend tests | `cd rugbylive-web && npm test` |
 | Build frontend | `cd rugbylive-web && npm run build` |
-| Docker build (API) | `cd rugbylive-api-v3 && docker build -t rugbylive-api .` |
+| **Deploy backend (EU+US)** | `cd rugbylive-api && gcloud builds submit --tag europe-west2-docker.pkg.dev/rugby-live-9c1c7/rugbylive-api/rugbylive-api:latest --project=rugby-live-9c1c7 --region=europe-west2` then redeploy both regions |
+| **Deploy frontend** | `cd rugbylive-web && gcloud builds submit --config=cloudbuild.yaml ...` (EU) and `--config=cloudbuild-us.yaml` (US) |
 
 ### Local env setup
-- Frontend: `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4002` ✓ updated to v3
-- Backend v3: `rugbylive-api-v3/.env` with `API_SPORTS_KEY`, `HIGHLIGHTLY_KEY`, `SAP_KEY` + Firebase config ✓ exists (gitignored)
-- Backend v2 (old): `rugbylive-api-v2/.env` with `SPORTS_API_PRO_KEY` ✓ exists (gitignored)
+- Frontend: `rugbylive-web/.env.local` with `NEXT_PUBLIC_API_URL=http://localhost:4002`
+- Backend: `rugbylive-api/.env` with `API_SPORTS_KEY`, `HIGHLIGHTLY_KEY`, `SAP_KEY`, `FIREBASE_SERVICE_ACCOUNT=./rugby-live-9c1c7-firebase-adminsdk-fbsvc-a783e2b586.json` ✓ exists (gitignored)
 
 ### Test strategy (from HANDOFF.md)
 - **Unit (Vitest)**: score ordering, `pointsDiff` formatting, status→badge mapping, `hashStr` stability

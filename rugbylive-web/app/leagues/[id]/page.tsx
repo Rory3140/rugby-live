@@ -2,7 +2,6 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import Link from 'next/link'
 import { useStandings, useLeagueMatches } from '@/hooks/useStandings'
 import { isTerminal } from '@/lib/utils'
 import { useLeague, useLeagueSeasons } from '@/hooks/useLeagues'

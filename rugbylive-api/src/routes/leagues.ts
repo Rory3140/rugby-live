@@ -1,56 +1,52 @@
-import { Router, Request, Response, NextFunction } from 'express'
-import { getLeagues, getStandings, getGamesByLeague } from '../services/apiSports'
-import { getLeaguesFromFirestore, saveLeaguesToFirestore } from '../services/store'
+import { Router } from 'express'
+import { getActiveLeagues } from '../config/leagues'
+import { getStandings, getLeagueMatches } from '../services/matchesService'
+import * as AS from '../providers/apiSports'
+import type { ApiResponse } from '../types/internal'
 
 const router = Router()
 
-function ok<T>(data: T, source: 'realtime' | 'firestore' | 'api-sports') {
-  return {
+function ok<T>(res: any, data: T, source = 'firestore'): void {
+  const payload: ApiResponse<T> = {
     data,
-    meta: { timestamp: new Date().toISOString(), cached: source !== 'api-sports', source },
+    meta: { timestamp: new Date().toISOString(), cached: false, source },
   }
+  res.json(payload)
 }
 
 // GET /leagues
-router.get('/', async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/', async (_req, res, next) => {
   try {
-    // Try Firestore cache first (fresh if < 24h old)
-    const cached = await getLeaguesFromFirestore()
-    if (cached) {
-      return res.json(ok(cached, 'firestore'))
-    }
+    const leagues = await getActiveLeagues()
+    ok(res, leagues)
+  } catch (e) { next(e) }
+})
 
-    // Fetch from API-Sports and persist to Firestore
-    const leagues = await getLeagues()
-    await saveLeaguesToFirestore(leagues).catch(() => {})
-    res.json(ok(leagues, 'api-sports'))
-  } catch (err) {
-    next(err)
-  }
+// GET /leagues/:id/seasons
+router.get('/:id/seasons', async (req, res, next) => {
+  try {
+    const seasons = await AS.fetchSeasons(Number(req.params.id))
+    ok(res, seasons, 'api-sports')
+  } catch (e) { next(e) }
 })
 
 // GET /leagues/:id/standings?season=YYYY
-router.get('/:id/standings', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id/standings', async (req, res, next) => {
   try {
-    const seasonParam = req.query['season']
-    const season = parseInt(String(seasonParam || '')) || new Date().getFullYear()
-    const standings = await getStandings(req.params['id'] as string, season)
-    res.json(ok(standings, 'api-sports'))
-  } catch (err) {
-    next(err)
-  }
+    const season = req.query.season as string | undefined
+    if (!season) return res.status(400).json({ error: 'season query param is required (e.g. ?season=2025)' })
+    const standings = await getStandings(req.params.id, season)
+    ok(res, standings, 'multi')
+  } catch (e) { next(e) }
 })
 
 // GET /leagues/:id/games?season=YYYY
-router.get('/:id/games', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id/games', async (req, res, next) => {
   try {
-    const seasonParam = req.query['season']
-    const season = parseInt(String(seasonParam || '')) || new Date().getFullYear()
-    const games = await getGamesByLeague(req.params['id'] as string, season)
-    res.json(ok(games, 'api-sports'))
-  } catch (err) {
-    next(err)
-  }
+    const season = req.query.season as string | undefined
+    const matches = await getLeagueMatches(req.params.id, season)
+    ok(res, matches, 'multi')
+  } catch (e) { next(e) }
 })
 
 export default router

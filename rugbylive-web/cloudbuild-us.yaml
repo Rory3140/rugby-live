@@ -1,0 +1,11 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - --build-arg
+      - NEXT_PUBLIC_API_URL=https://rugbylive-api-781497782595.us-east1.run.app
+      - -t
+      - europe-west2-docker.pkg.dev/rugby-live-9c1c7/rugbylive-api/rugbylive-web-us:latest
+      - .
+images:
+  - europe-west2-docker.pkg.dev/rugby-live-9c1c7/rugbylive-api/rugbylive-web-us:latest

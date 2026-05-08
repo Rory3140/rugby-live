@@ -1,102 +1,75 @@
-import { Router, Request, Response, NextFunction } from 'express'
-import { getGamesByDate, getGameById, getH2H } from '../services/apiSports'
-import {
-  getDailyGamesFromRTDB,
-  saveDailyGamesToRTDB,
-  getMatchFromFirestore,
-  getMatchesByDateFromFirestore,
-  getActiveLeagueIds,
-} from '../services/store'
-import type { Match } from '../types/internal'
+import { Router } from 'express'
+import * as svc from '../services/matchesService'
+import { getMatchDetail } from '../services/matchDetailService'
+import type { ApiResponse } from '../types/internal'
 
 const router = Router()
 
-function ok<T>(data: T, source: 'realtime' | 'firestore' | 'api-sports') {
-  return {
+function ok<T>(res: any, data: T, source = 'api'): void {
+  const payload: ApiResponse<T> = {
     data,
-    meta: { timestamp: new Date().toISOString(), cached: source !== 'api-sports', source },
+    meta: { timestamp: new Date().toISOString(), cached: false, source },
   }
-}
-
-function filterActive(matches: Match[], activeIds: Set<string> | null): Match[] {
-  if (!activeIds || activeIds.size === 0) return matches // not seeded yet — show everything
-  return matches.filter(m => activeIds.has(m.competition.id))
+  res.json(payload)
 }
 
 // GET /matches?date=YYYY-MM-DD
-router.get('/', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/', async (req, res, next) => {
   try {
-    const date = String(req.query['date'] || new Date().toISOString().slice(0, 10))
-    const today = new Date().toISOString().slice(0, 10)
-    const activeIds = await getActiveLeagueIds()
+    const date = (req.query.date as string) ?? new Date().toISOString().slice(0, 10)
+    const matches = await svc.getMatchesByDate(date)
+    ok(res, matches, 'multi')
+  } catch (e) { next(e) }
+})
 
-    // Today → try RTDB first (kept fresh by poll job)
-    if (date === today) {
-      const cached = await getDailyGamesFromRTDB(date)
-      if (cached && cached.length > 0) {
-        return res.json(ok(filterActive(cached, activeIds), 'realtime'))
-      }
-    }
+// GET /matches/live
+router.get('/live', async (_req, res, next) => {
+  try {
+    const matches = await svc.getLiveMatches()
+    ok(res, matches, 'multi')
+  } catch (e) { next(e) }
+})
 
-    // Past dates → try Firestore historical store
-    if (date < today) {
-      const historical = await getMatchesByDateFromFirestore(date)
-      if (historical && historical.length > 0) {
-        return res.json(ok(filterActive(historical, activeIds), 'firestore'))
-      }
-    }
-
-    // Fall back to API-Sports, and prime RTDB cache for today
-    const matches = await getGamesByDate(date)
-    if (date === today) {
-      await saveDailyGamesToRTDB(date, filterActive(matches, activeIds)).catch(() => {})
-    }
-    res.json(ok(filterActive(matches, activeIds), 'api-sports'))
-  } catch (err) {
-    next(err)
-  }
+// GET /matches/:id/detail — all available data in one shot (score, venue, lineups, incidents, highlights, h2h, predictions)
+router.get('/:id/detail', async (req, res, next) => {
+  try {
+    const detail = await getMatchDetail(req.params.id)
+    if (!detail) return res.status(404).json({ error: 'Match not found' })
+    ok(res, detail, 'multi')
+  } catch (e) { next(e) }
 })
 
 // GET /matches/:id
-router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id', async (req, res, next) => {
   try {
-    const id = req.params['id'] as string
-
-    // Try Firestore first — finished games are stored there permanently
-    const stored = await getMatchFromFirestore(id)
-    if (stored) {
-      return res.json(ok(stored, 'firestore'))
-    }
-
-    // Fall back to live API
-    const match = await getGameById(id)
+    const match = await svc.getMatchById(req.params.id)
     if (!match) return res.status(404).json({ error: 'Match not found' })
-    res.json(ok(match, 'api-sports'))
-  } catch (err) {
-    next(err)
-  }
+    ok(res, match)
+  } catch (e) { next(e) }
+})
+
+// GET /matches/:id/highlights
+router.get('/:id/highlights', async (req, res, next) => {
+  try {
+    const highlights = await svc.getHighlights(req.params.id)
+    ok(res, highlights, 'highlightly')
+  } catch (e) { next(e) }
 })
 
 // GET /matches/:id/h2h
-router.get('/:id/h2h', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:id/h2h', async (req, res, next) => {
   try {
-    const id = req.params['id'] as string
+    const h2h = await svc.getH2H(req.params.id)
+    ok(res, h2h)
+  } catch (e) { next(e) }
+})
 
-    // Get the match (Firestore or API)
-    const stored = await getMatchFromFirestore(id)
-    const match = stored ?? await getGameById(id)
-    if (!match) return res.status(404).json({ error: 'Match not found' })
-
-    const h2h = await getH2H(match.homeTeam.id, match.awayTeam.id)
-    const history = h2h
-      .filter((m: Match) => m.id !== id)
-      .sort((a: Match, b: Match) => new Date(b.kickoff).getTime() - new Date(a.kickoff).getTime())
-      .slice(0, 10)
-
-    res.json(ok(history, 'api-sports'))
-  } catch (err) {
-    next(err)
-  }
+// GET /matches/:id/incidents
+router.get('/:id/incidents', async (req, res, next) => {
+  try {
+    const incidents = await svc.getIncidents(req.params.id)
+    ok(res, incidents, 'highlightly')
+  } catch (e) { next(e) }
 })
 
 export default router

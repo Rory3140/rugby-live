@@ -1,39 +1,25 @@
 import 'dotenv/config'
 import express from 'express'
-import helmet from 'helmet'
-import { corsMiddleware } from './middleware/cors'
-import { rateLimiter } from './middleware/rateLimiter'
+import { initFirebase } from './config/firebase'
+import corsMiddleware from './middleware/cors'
 import { errorHandler } from './middleware/errorHandler'
 import matchesRouter from './routes/matches'
 import leaguesRouter from './routes/leagues'
-import pollRouter from './routes/poll'
 import adminRouter from './routes/admin'
 
-const app = express()
-const PORT = parseInt(process.env.PORT || '4000', 10)
+initFirebase()
 
-// ─── Middleware ──────────────────────────────────────────────────────────────
-app.use(helmet())
+const app = express()
 app.use(corsMiddleware)
 app.use(express.json())
-app.use(rateLimiter)
 
-// ─── Health check ────────────────────────────────────────────────────────────
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, ts: new Date().toISOString() })
-})
+app.get('/health', (_req, res) => res.json({ status: 'ok', version: 'v3', ts: new Date().toISOString() }))
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
 app.use('/matches', matchesRouter)
 app.use('/leagues', leaguesRouter)
-app.use('/poll', pollRouter)
 app.use('/admin', adminRouter)
 
-// ─── Error handler ───────────────────────────────────────────────────────────
 app.use(errorHandler)
 
-app.listen(PORT, () => {
-  console.log(`rugbylive-api running on http://localhost:${PORT}`)
-})
-
-export default app
+const PORT = Number(process.env.PORT ?? 4002)
+app.listen(PORT, () => console.log(`rugbylive-api-v3 listening on port ${PORT}`))
