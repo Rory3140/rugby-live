@@ -19,10 +19,15 @@ export function initFirebase() {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount as admin.ServiceAccount),
     databaseURL: process.env.FIREBASE_DATABASE_URL,
+    storageBucket: 'rugby-live-9c1c7.firebasestorage.app',
   })
   initialised = true
 }
 
 export function db() {
   return admin.firestore()
+}
+
+export function storage() {
+  return admin.storage().bucket()
 }

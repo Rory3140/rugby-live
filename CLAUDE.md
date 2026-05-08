@@ -8,6 +8,8 @@ This document is the single source of truth for everything. Read it fully before
 
 > **Maintenance rule**: Claude must keep this file up to date throughout every session. Any time a fact is confirmed, a decision is made, a status changes, or something new is discovered (API behaviour, confirmed field values, build issues, what's been built), update the relevant section before ending the session. Do not leave this file stale.
 
+> **Deployment rule**: Never run `gcloud builds submit`, `gcloud run deploy`, or any other Cloud Run / GCP deployment command unless the user explicitly says to deploy. Code changes only — no deploying unless asked.
+
 > **Design companion**: the component system is prototyped in `initial-design/RugbyLive UI System.html` (design-canvas). Use that as the visual source of truth. Exact markup/React equivalents live in `initial-design/HANDOFF.md`.
 
 ---
@@ -51,6 +53,7 @@ A Swift iOS app will come later — the backend must be built as a clean statele
 |---|---|
 | Firestore | Fixtures, standings, teams, leagues |
 | Realtime Database | Live score cache (read speed critical) |
+| Storage | Custom team + league logo images (`rugby-live-9c1c7.firebasestorage.app`) |
 | Cloud Messaging (FCM) | Push notifications |
 | Firebase Hosting | Frontend deployment |
 | Firebase Auth | NOT USED in MVP — Phase 2 only |
@@ -96,7 +99,11 @@ Keys stored in Cloud Run Secret Manager. Full endpoint references: `SPORTSAPIPRO
 | Team season stats | ✅ | ✅ | ✅ unreliable |
 | Team / league logos | ✅ | ✅ patchy | ❌ |
 
-**Logos are managed manually in Firebase** — not sourced from any API. `nameCode` (3-letter code) is the text fallback for missing logos.
+**Logos are managed via the `/leagues/manage` admin page** — upload directly from the UI. Images are stored in Firebase Storage and the URL is written to `customLogoUrl` in Firestore automatically. `nameCode` (3-letter code) is the text fallback for missing logos.
+
+**Custom logo URL format**: `https://storage.googleapis.com/rugby-live-9c1c7.firebasestorage.app/logos/{teams|leagues}/{id}.{ext}?v={timestamp}` — `?v=` suffix busts browser cache on re-upload.
+
+**Logo resolution order (both teams and leagues)**: `customLogoUrl` (Firebase Storage) → `logoUrl` / `asLogoUrl` (API-Sports CDN). Frontend receives a single `logoUrl` field. Custom logos are applied in `matchesService.ts`, `matchDetailService.ts` (including H2H), and `getStandings`.
 
 ---
 
@@ -472,7 +479,10 @@ Following:  "Following"  — border: rgba(232,255,71,0.35), color: var(--accent)
 - Toggle switch per league — calls `PATCH /admin/leagues/:id` with `{ active: boolean }` → writes to Firestore
 - Inactive leagues shown at 40% opacity
 - Counter shows "X of Y active"
-- Optimistic UI: pending state disables toggle + shows wait cursor
+- **League logo upload**: click the logo/icon on any row → file picker → `POST /admin/leagues/:id/logo` → uploaded to Firebase Storage, Firestore `customLogoUrl` updated, logo updates immediately in UI
+- **Teams panel**: click "Teams" chevron on any league row → expands inline; fetches `GET /admin/leagues/:id/teams` (from standings); shows team logo + editable name + editable 3-letter code
+  - **Team logo upload**: click team logo → file picker → `POST /admin/teams/:numericId/logo`
+  - **Team rename**: edit name or code inline, border turns accent when dirty, click Save → `PATCH /admin/teams/:numericId` with `{ name, shortName }`
 - **Currently unprotected** — `/admin/*` routes have no auth. Must add protection before production.
 - This is a sysadmin function. The `active` field is global — deactivated leagues are hidden from everyone, not just the current user.
 
@@ -578,7 +588,7 @@ Following:  "Following"  — border: rgba(232,255,71,0.35), color: var(--accent)
     /routes
       /matches.ts                ← GET /matches, /matches/live, /matches/:id, /matches/:id/detail, /matches/:id/h2h, /matches/:id/highlights, /matches/:id/incidents
       /leagues.ts                ← GET /leagues, /leagues/:id/standings, /leagues/:id/seasons, /leagues/:id/games
-      /admin.ts                  ← GET /admin/leagues (all incl. inactive), PATCH /admin/leagues/:id
+      /admin.ts                  ← Full admin API: league CRUD, logo uploads, team management
     /services
       /matchesService.ts         ← Date-based match list (API-Sports primary)
       /matchDetailService.ts     ← All-in-one detail: score + venue + weather + lineups + incidents + highlights + H2H
@@ -618,7 +628,7 @@ All backend endpoints return this envelope:
 
 Keep all endpoints stateless. No session, no cookie auth. CORS open to rugbylive.app and localhost:3000.
 
-**CORS allowed methods**: `GET, POST, PATCH, OPTIONS` — PATCH required for admin league toggle.
+**CORS allowed methods**: `GET, POST, PATCH, DELETE, OPTIONS` — DELETE required for removing custom logos.
 
 ---
 
@@ -895,8 +905,14 @@ C:\Users\RoryWood\Documents\rugby-live\
 - `GET /matches/:id/highlights` — Highlightly only (hl_ matches); as_ returns []
 - `GET /matches/:id/incidents` — Highlightly only (hl_ matches); as_ returns []
 - `GET /matches/:id/detail` — **all data in one call**: score + period scores + venue + referee + weather + lineups + predictions + incidents + highlights + H2H. All fields null/empty when provider has no data — never throws. Sources map indicates which provider delivered each section.
-- `GET /admin/leagues` — all 142 leagues including inactive
+- `GET /admin/leagues` — all leagues including inactive
 - `PATCH /admin/leagues/:id` — toggle active, category, provider IDs
+- `POST /admin/leagues/:id/logo` — upload custom logo (multipart/form-data `logo` field) → Firebase Storage → updates `customLogoUrl` in Firestore
+- `DELETE /admin/leagues/:id/logo` — remove custom logo (reverts to API-Sports CDN)
+- `GET /admin/leagues/:id/teams` — teams for a league (from standings), merged with Firestore team data
+- `PATCH /admin/teams/:numericId` — rename team (`{ name, shortName }`) → writes to Firestore teams collection
+- `POST /admin/teams/:numericId/logo` — upload custom team logo → Firebase Storage → updates `customLogoUrl`
+- `DELETE /admin/teams/:numericId/logo` — remove custom team logo
 
 **Key design decisions:**
 - Date-based match polling: ONE API-Sports call (`/games?date=`) covering all leagues → filtered by active AS IDs. Does NOT call Highlightly for polling (7,500/day limit should be preserved for detail pages).
@@ -963,13 +979,14 @@ gcloud run services update rugbylive-web --region=europe-west2 --project=rugby-l
 - **Realtime Database**: today's games written to `/games/{date}/{gameId}` on every poll
 - **Firestore `/matches/{id}`**: FT games written permanently when poll detects FT transition
 - **Firestore `/leagues`**: cached from API-Sports on first `/leagues` request, refreshed if > 24h old. Each doc has `active: boolean` (default `true`) and `category: string | null` (default `null` = auto-detect). Both fields are preserved on API-Sports refresh. Setting `active: false` hides the league globally. Setting `category` overrides the auto-detect grouping (International/Club/Sevens).
-- **Firestore `/teams/{id}`**: upserted on poll when team first seen; `customLogoUrl: null` field reserved for future custom logos
+- **Firestore `/teams/{id}`**: upserted on poll when team first seen; `customLogoUrl` set via admin page upload; `name` and `nameCode` overrideable via admin page rename
+- **Firebase Storage**: bucket `rugby-live-9c1c7.firebasestorage.app`, paths `logos/leagues/{id}.{ext}` and `logos/teams/{numericId}.{ext}`, files made public via Admin SDK ACL
 - `GET /matches?date=today` → RTDB first (`source: "realtime"`), falls back to API-Sports
 - `GET /matches?date=past` → Firestore first, falls back to API-Sports
 - `GET /matches/:id` → Firestore first (if historical FT game), falls back to API-Sports
 - `GET /leagues` → Firestore first if < 24h old, falls back to API-Sports and seeds Firestore
 - FCM push notifications still stubbed — deferred to Phase 2
-- **Logo strategy**: `logoUrl` = API-Sports CDN (stored in DB), `customLogoUrl: null` = reserved for future custom logos. Effective logo = `customLogoUrl ?? logoUrl`. Frontend receives a single `logoUrl` field.
+- **Logo strategy**: `customLogoUrl` (Firebase Storage, set via admin) takes priority over `asLogoUrl` / `logoUrl` (API-Sports CDN). Frontend always receives a single resolved `logoUrl` field. Applied in `matchesService.ts`, `matchDetailService.ts`, and standings enrichment.
 
 ### Frontend status (rugbylive-web)
 - **Phase 1 complete and running** — all 5 pages built and tested against live API
@@ -1037,6 +1054,23 @@ gcloud run services update rugbylive-web --region=europe-west2 --project=rugby-l
 - **Highlight thumbnail fixed** — `extractHighlights()` uses `h.imgUrl` as primary thumbnail source (Highlightly field). `h.channel` used as source label.
 - **SAP `twoPoints` incident fixed** — `SAP_INCIDENT_TYPE_MAP` correctly maps `twoPoints → 'conversion'` (2pt union conversion, not a try). Also added `yellow`, `red` variants to map alongside `yellowCard`, `redCard`.
 - **Frontend migrated to v3** — `.env.local` updated to `http://localhost:4002`
+
+**Confirmed changes (2026-05-08 session — custom logos, admin overhaul):**
+- **Firebase Storage initialised** — bucket `rugby-live-9c1c7.firebasestorage.app` added to `admin.initializeApp()` in `config/firebase.ts`; `storage()` helper exported
+- **`multer` installed** — `memoryStorage()` used for file upload handling in admin routes
+- **Custom team logo pipeline** — `config/teams.ts` now exports `loadTeamLogoMap()` (returns `Map<asTeamId, resolvedLogoUrl>`); applied in `matchesService.ts` (`getMatchesByDate`, `getLeagueMatches`), `matchDetailService.ts` (match hero + H2H cards), and `getStandings`. All paths now serve `customLogoUrl ?? asLogoUrl` for teams
+- **Custom league logo pipeline** — already existed in `config/leagues.ts` (`customLogoUrl ?? logoUrl`); fixed by ensuring `matchDetailService.ts` applies `matchLeague.logoUrl` to the competition object (previously only `matchesService.ts` did this). Also eliminated duplicate `getActiveLeagues()` call in detail service
+- **Cache busting on re-upload** — all Storage uploads append `?v={Date.now()}` to the URL stored in Firestore so browsers always fetch the latest image on update
+- **`CompLogo` shape changed** — `borderRadius: 999` → `borderRadius: 6` (square corners to match square league logos)
+- **Admin routes expanded** — `routes/admin.ts` now handles:
+  - `POST /admin/leagues/:id/logo` — upload + write to Storage + update Firestore `customLogoUrl`
+  - `DELETE /admin/leagues/:id/logo` — revert to API-Sports logo
+  - `GET /admin/leagues/:id/teams` — teams from standings merged with Firestore team data
+  - `PATCH /admin/teams/:id` — rename team name + shortName (writes `name` + `nameCode` to Firestore)
+  - `POST /admin/teams/:id/logo` — upload custom team logo
+  - `DELETE /admin/teams/:id/logo` — remove custom team logo
+- **`/leagues/manage` page rebuilt** — click logo to upload, "Teams" chevron expands inline team panel per league; each team has logo upload + editable name/code + Save button
+- **CORS** — `DELETE` added to allowed methods
 
 **Confirmed changes (2026-05-06 session — v3 multi-provider backend):**
 - **`rugbylive-api-v3` built** — port 4002, multi-provider: API-Sports + Highlightly + SportsAPI Pro

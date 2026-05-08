@@ -5,6 +5,9 @@ interface Props {
   incidents: Incident[]
   homeTeam: Team
   awayTeam: Team
+  live?: boolean
+  homeScore?: number | null
+  awayScore?: number | null
 }
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -50,8 +53,9 @@ function IncidentPill({ incident }: { incident: Incident }) {
   )
 }
 
-export default function MatchTimeline({ incidents, homeTeam, awayTeam }: Props) {
+export default function MatchTimeline({ incidents, homeTeam, awayTeam, live, homeScore, awayScore }: Props) {
   const sorted = [...incidents].sort((a, b) => (b.minute ?? 0) - (a.minute ?? 0))
+  const scoringStarted = (homeScore ?? 0) > 0 || (awayScore ?? 0) > 0
 
   return (
     <div style={{
@@ -62,54 +66,70 @@ export default function MatchTimeline({ incidents, homeTeam, awayTeam }: Props) 
     }}>
       <div className="rl-label" style={{ marginBottom: 16 }}>Match Timeline</div>
 
-      {/* Team header */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 48px 1fr',
-        gap: 8,
-        marginBottom: 12,
-        paddingBottom: 10,
-        borderBottom: '1px solid var(--border)',
-      }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)' }}>{homeTeam.shortName}</div>
-        <div />
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)', textAlign: 'right' }}>{awayTeam.shortName}</div>
-      </div>
+      {/* Finished, no data */}
+      {incidents.length === 0 && !live && (
+        <div style={{ padding: '16px 0 4px', textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>
+          Match timeline not available
+        </div>
+      )}
+
+      {/* Live, 0-0, no events yet — genuinely waiting */}
+      {incidents.length === 0 && live && !scoringStarted && (
+        <div style={{ padding: '16px 0 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--text3)', fontSize: 13 }}>
+          <span className="rl-live-dot" />
+          Waiting for first event…
+        </div>
+      )}
+
+      {/* Live, scores exist but no incident data — show nothing */}
 
       {/* Events */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {sorted.map((inc) => (
-          <div key={inc.id} style={{
+      {incidents.length > 0 && (
+        <>
+          {/* Team header */}
+          <div style={{
             display: 'grid',
             gridTemplateColumns: '1fr 48px 1fr',
             gap: 8,
-            alignItems: 'center',
-            minHeight: 36,
+            marginBottom: 12,
+            paddingBottom: 10,
+            borderBottom: '1px solid var(--border)',
           }}>
-            {/* Home side */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              {inc.team === 'home' && <IncidentPill incident={inc} />}
-            </div>
-
-            {/* Minute + score */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-              <span className="rl-mono" style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600 }}>
-                {inc.minute != null ? `${inc.minute}'` : '–'}
-              </span>
-              {(inc.homeScore != null && inc.awayScore != null) && (
-                <span className="rl-mono" style={{ fontSize: 10, color: 'var(--text2)', fontWeight: 700 }}>
-                  {inc.homeScore}–{inc.awayScore}
-                </span>
-              )}
-            </div>
-
-            {/* Away side */}
-            <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-              {inc.team === 'away' && <IncidentPill incident={inc} />}
-            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)' }}>{homeTeam.shortName}</div>
+            <div />
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)', textAlign: 'right' }}>{awayTeam.shortName}</div>
           </div>
-        ))}
-      </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {sorted.map((inc) => (
+              <div key={inc.id} style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 48px 1fr',
+                gap: 8,
+                alignItems: 'center',
+                minHeight: 36,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  {inc.team === 'home' && <IncidentPill incident={inc} />}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                  <span className="rl-mono" style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600 }}>
+                    {inc.minute != null ? `${inc.minute}'` : '–'}
+                  </span>
+                  {(inc.homeScore != null && inc.awayScore != null) && (
+                    <span className="rl-mono" style={{ fontSize: 10, color: 'var(--text2)', fontWeight: 700 }}>
+                      {inc.homeScore}–{inc.awayScore}
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                  {inc.team === 'away' && <IncidentPill incident={inc} />}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }

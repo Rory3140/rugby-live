@@ -1,9 +1,15 @@
 import { getActiveLeagues } from '../config/leagues'
+import { loadTeamLogoMap } from '../config/teams'
 import * as AS from '../providers/apiSports'
 import * as HL from '../providers/highlightly'
 import * as SAP from '../providers/sportsApiPro'
 import type { Match, Standing, Highlight, Incident } from '../types/internal'
 import { matchKey } from './matchResolver'
+
+function parseAsTeamId(id: string): number | null {
+  const m = id.match(/^as_team_(\d+)$/)
+  return m ? Number(m[1]) : null
+}
 
 const NON_LIVE = new Set(['NS', 'FT', 'AW', 'AWD', 'WO', 'CANC', 'PST', 'INT', 'ABD', 'TBD', 'AET', 'AP', 'PEN'])
 export function isLive(status: string) { return !NON_LIVE.has(status) }
@@ -18,26 +24,34 @@ export function isLive(status: string) { return !NON_LIVE.has(status) }
  *    Highlightly is reserved for match detail (highlights, incidents, H2H).
  */
 export async function getMatchesByDate(date: string): Promise<Match[]> {
-  const leagues = await getActiveLeagues()
+  const [leagues, teamLogoMap] = await Promise.all([getActiveLeagues(), loadTeamLogoMap()])
   const activeAsIds = new Set(leagues.map(l => l.apiSportsId).filter((id): id is number => id !== null))
 
   const matches = await AS.fetchAllMatchesByDate(date, activeAsIds)
 
-  // Enrich each match with the Firestore league data (logo, category, etc.)
-  // so the competition object reflects our stored metadata
+  // Enrich each match with Firestore league + team logo overrides
   const leagueById = new Map(leagues.map(l => [l.apiSportsId, l]))
   return matches.map(m => {
     const asId = Number(m.competition.id)
     const league = leagueById.get(asId)
-    if (!league) return m
+    const homeAsId = parseAsTeamId(m.homeTeam.id)
+    const awayAsId = parseAsTeamId(m.awayTeam.id)
     return {
       ...m,
-      competition: {
+      competition: league ? {
         ...m.competition,
-        id: league.id, // use Firestore doc ID as canonical ID
+        id: league.id,
         name: league.name,
         shortName: league.shortName,
         logoUrl: league.logoUrl ?? m.competition.logoUrl,
+      } : m.competition,
+      homeTeam: {
+        ...m.homeTeam,
+        logoUrl: (homeAsId != null ? teamLogoMap.get(homeAsId) : null) ?? m.homeTeam.logoUrl,
+      },
+      awayTeam: {
+        ...m.awayTeam,
+        logoUrl: (awayAsId != null ? teamLogoMap.get(awayAsId) : null) ?? m.awayTeam.logoUrl,
       },
     }
   })
@@ -70,23 +84,30 @@ export async function getMatchById(id: string): Promise<Match | null> {
  * Chain: API-Sports → Highlightly → SAP Pro
  */
 export async function getStandings(leagueId: string, season?: string): Promise<Standing[]> {
-  const leagues = await getActiveLeagues()
+  const [leagues, teamLogoMap] = await Promise.all([getActiveLeagues(), loadTeamLogoMap()])
   const league = leagues.find(l => l.id === leagueId)
   if (!league) return []
 
+  const enrichStandings = (rows: Standing[]): Standing[] =>
+    rows.map(r => {
+      const asId = parseAsTeamId(r.team.id)
+      const logo = (asId != null ? teamLogoMap.get(asId) : null) ?? r.team.logoUrl
+      return { ...r, team: { ...r.team, logoUrl: logo } }
+    })
+
   if (league.apiSportsId && season) {
     const rows = await AS.fetchStandings(league.apiSportsId, Number(season), leagueId)
-    if (rows.length > 0) return rows
+    if (rows.length > 0) return enrichStandings(rows)
   }
 
   if (league.highlightlyId) {
     const rows = await HL.fetchStandings(league.highlightlyId, leagueId)
-    if (rows.length > 0) return rows
+    if (rows.length > 0) return enrichStandings(rows)
   }
 
   if (league.sapId) {
     const rows = await SAP.fetchStandings(league.sapId, leagueId)
-    if (rows.length > 0) return rows
+    if (rows.length > 0) return enrichStandings(rows)
   }
 
   return []
@@ -97,13 +118,23 @@ export async function getStandings(leagueId: string, season?: string): Promise<S
  * Chain: API-Sports → SAP Pro
  */
 export async function getLeagueMatches(leagueId: string, season?: string): Promise<Match[]> {
-  const leagues = await getActiveLeagues()
+  const [leagues, teamLogoMap] = await Promise.all([getActiveLeagues(), loadTeamLogoMap()])
   const league = leagues.find(l => l.id === leagueId)
   if (!league) return []
 
+  const enrichTeams = (m: Match): Match => {
+    const homeAsId = parseAsTeamId(m.homeTeam.id)
+    const awayAsId = parseAsTeamId(m.awayTeam.id)
+    return {
+      ...m,
+      homeTeam: { ...m.homeTeam, logoUrl: (homeAsId != null ? teamLogoMap.get(homeAsId) : null) ?? m.homeTeam.logoUrl },
+      awayTeam: { ...m.awayTeam, logoUrl: (awayAsId != null ? teamLogoMap.get(awayAsId) : null) ?? m.awayTeam.logoUrl },
+    }
+  }
+
   if (league.apiSportsId && season) {
     const matches = await AS.fetchLeagueMatches(league.apiSportsId, Number(season), leagueId)
-    if (matches.length > 0) return matches.map(m => ({
+    if (matches.length > 0) return matches.map(m => enrichTeams({
       ...m,
       competition: { ...m.competition, id: leagueId, name: league.name, shortName: league.shortName, logoUrl: league.logoUrl ?? m.competition.logoUrl },
     }))

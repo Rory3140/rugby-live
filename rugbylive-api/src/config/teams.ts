@@ -58,6 +58,16 @@ export async function backfillHlTeamId(asTeamId: number, hlTeamId: number): Prom
   }
 }
 
+export async function loadTeamLogoMap(): Promise<Map<number, string>> {
+  const map = await loadCache()
+  const result = new Map<number, string>()
+  for (const [id, t] of map) {
+    const logo = t.customLogoUrl ?? t.asLogoUrl
+    if (logo) result.set(id, logo)
+  }
+  return result
+}
+
 export function invalidateTeamCache() {
   cache = null
 }

@@ -16,7 +16,7 @@ export default function CompLogo({ comp, size = 28 }: Props) {
   const base: React.CSSProperties = {
     width: size,
     height: size,
-    borderRadius: 999,
+    borderRadius: 6,
     flexShrink: 0,
     display: 'inline-flex',
     alignItems: 'center',

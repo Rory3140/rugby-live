@@ -38,6 +38,7 @@ export default function MatchCard({ match, showDate, showComp }: Props) {
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 8,
+          height: 20,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
             <StatusBadge status={status} kickoff={kickoff} />

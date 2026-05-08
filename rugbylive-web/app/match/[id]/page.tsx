@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useMatchDetail } from '@/hooks/useMatch'
+import { isLive, isTerminal } from '@/lib/utils'
 import MatchHero from '@/components/match/MatchHero'
 import MatchLineups from '@/components/match/MatchLineups'
 import MatchTimeline from '@/components/match/MatchTimeline'
@@ -53,7 +54,6 @@ export default function MatchPage({ params }: { params: { id: string } }) {
     if (!detail) return ['Score'] as string[]
     const t: string[] = ['Score']
     if (detail.lineups) t.push('Lineups')
-    if (detail.incidents.length > 0) t.push('Timeline')
     if (detail.highlights.length > 0) t.push('Highlights')
     t.push('H2H')
     return t
@@ -81,6 +81,9 @@ export default function MatchPage({ params }: { params: { id: string } }) {
 
   const { match, venue, referee, weather, predictions, lineups, incidents, highlights, h2h } = detail
   const hasPeriods = match.periods.first.home != null || match.periods.second.home != null
+  const live = isLive(match.status)
+  const finished = isTerminal(match.status)
+  const showTimeline = live || finished
 
   return (
     <div style={{ padding: '24px 20px', maxWidth: 800, margin: '0 auto' }}>
@@ -188,10 +191,8 @@ export default function MatchPage({ params }: { params: { id: string } }) {
               />
             )}
 
-            {!hasPeriods && !predictions && (
-              <div style={{ padding: '28px 20px', textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>
-                No additional score data available.
-              </div>
+            {showTimeline && (
+              <MatchTimeline incidents={incidents} homeTeam={match.homeTeam} awayTeam={match.awayTeam} live={live} homeScore={match.homeScore} awayScore={match.awayScore} />
             )}
           </div>
         )}
@@ -199,11 +200,6 @@ export default function MatchPage({ params }: { params: { id: string } }) {
         {/* Lineups */}
         {activeTab === 'Lineups' && lineups && (
           <MatchLineups lineups={lineups} homeTeam={match.homeTeam} awayTeam={match.awayTeam} />
-        )}
-
-        {/* Timeline */}
-        {activeTab === 'Timeline' && incidents.length > 0 && (
-          <MatchTimeline incidents={incidents} homeTeam={match.homeTeam} awayTeam={match.awayTeam} />
         )}
 
         {/* Highlights */}

@@ -1,4 +1,5 @@
 import { getActiveLeagues } from '../config/leagues'
+import { loadTeamLogoMap } from '../config/teams'
 import * as AS from '../providers/apiSports'
 import * as SAP from '../providers/sportsApiPro'
 import { getMatchById } from './matchesService'
@@ -93,10 +94,35 @@ function extractHighlights(items: any[]): Highlight[] {
 
 // ---- main function ----
 
+function parseAsTeamId(id: string): number | null {
+  const m = id.match(/^as_team_(\d+)$/)
+  return m ? Number(m[1]) : null
+}
+
 export async function getMatchDetail(matchId: string): Promise<MatchDetail | null> {
-  // 1. Fetch the base match
-  const match = await getMatchById(matchId)
-  if (!match) return null
+  // 1. Fetch the base match + team logo overrides in parallel
+  const [matchRaw, teamLogoMap] = await Promise.all([getMatchById(matchId), loadTeamLogoMap()])
+  if (!matchRaw) return null
+
+  const applyTeamLogo = (team: Match['homeTeam']): Match['homeTeam'] => {
+    const asId = parseAsTeamId(team.id)
+    const logo = (asId != null ? teamLogoMap.get(asId) : null) ?? team.logoUrl
+    return { ...team, logoUrl: logo }
+  }
+
+  // Resolve leagues now so we can enrich competition logo alongside team logos
+  const leaguesForEnrich = await getActiveLeagues()
+  const matchLeague = leaguesForEnrich.find(l => l.id === matchRaw.competition.id)
+
+  const match: Match = {
+    ...matchRaw,
+    competition: {
+      ...matchRaw.competition,
+      logoUrl: matchLeague?.logoUrl ?? matchRaw.competition.logoUrl,
+    },
+    homeTeam: applyTeamLogo(matchRaw.homeTeam),
+    awayTeam: applyTeamLogo(matchRaw.awayTeam),
+  }
 
   const sources: MatchDetail['sources'] = {
     match: matchId.startsWith('as_') ? 'api-sports' : 'highlightly',
@@ -109,11 +135,9 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
   }
 
   // 2. Resolve Highlightly + SAP match IDs in parallel
-  const leagues = await getActiveLeagues()
   const date = match.kickoff.slice(0, 10)
 
-  const league = leagues.find(l => l.id === match.competition.id)
-  const hlLeagueId = league?.highlightlyId ?? null
+  const hlLeagueId = matchLeague?.highlightlyId ?? null
 
   const asHomeId = match.homeTeam.id.startsWith('as_team_')
     ? Number(match.homeTeam.id.replace('as_team_', '')) : null
@@ -201,9 +225,16 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
   const highlights = extractHighlights(hlHighlightItems)
   if (highlights.length > 0) sources.highlights = 'highlightly'
 
+  // Apply team logo overrides to H2H matches
+  const enrichedH2h = h2hMatches.map(m => ({
+    ...m,
+    homeTeam: applyTeamLogo(m.homeTeam),
+    awayTeam: applyTeamLogo(m.awayTeam),
+  }))
+
   // 5. Build H2H summary
   let h2h: MatchDetail['h2h'] = null
-  if (h2hMatches.length > 0) {
+  if (enrichedH2h.length > 0) {
     const homeNorm = match.homeTeam.name
     const isCurrentMatch = (m: Match) =>
       m.id === matchId ||
@@ -211,7 +242,7 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
        m.homeTeam.name === match.homeTeam.name &&
        m.awayTeam.name === match.awayTeam.name)
     let homeWins = 0, awayWins = 0, draws = 0
-    for (const m of h2hMatches) {
+    for (const m of enrichedH2h) {
       if (isCurrentMatch(m)) continue
       if (m.homeScore === null || m.awayScore === null) continue
       const isHomeTeamHome = m.homeTeam.name === homeNorm
@@ -225,7 +256,7 @@ export async function getMatchDetail(matchId: string): Promise<MatchDetail | nul
       homeWins,
       awayWins,
       draws,
-      recentMatches: h2hMatches
+      recentMatches: enrichedH2h
         .filter(m => m.homeScore !== null && !isCurrentMatch(m))
         .sort((a, b) => b.kickoff.localeCompare(a.kickoff))
         .slice(0, 10),
